@@ -1,42 +1,18 @@
-import { useRef, useEffect } from "react";
-
-import { TranscriberData } from "../hooks/useTranscriber";
-import { formatAudioTimestamp } from "../utils/AudioUtils";
-
-// interface Props {
-//     transcribedData: TranscriberData | undefined;
-// }
+import { useRef, useEffect, useState } from "react";
 
 export default function Transcript({ transcribedData }) {
     const divRef = useRef(null);
+    const [copied, setCopied] = useState(false);
 
-    const saveBlob = (blob, filename) => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        link.click();
-        URL.revokeObjectURL(url);
-    };
-    const exportTXT = () => {
-        let chunks = transcribedData?.chunks ?? [];
-        let text = chunks
-            .map((chunk) => chunk.text)
-            .join("")
-            .trim();
-
-        const blob = new Blob([text], { type: "text/plain" });
-        saveBlob(blob, "transcript.txt");
-    };
-    const exportJSON = () => {
-        let jsonData = JSON.stringify(transcribedData?.chunks ?? [], null, 2);
-
-        // post-process the JSON to make it more readable
-        const regex = /(    "timestamp": )\[\s+(\S+)\s+(\S+)\s+\]/gm;
-        jsonData = jsonData.replace(regex, "$1[$2 $3]");
-
-        const blob = new Blob([jsonData], { type: "application/json" });
-        saveBlob(blob, "transcript.json");
+    const copyToClipboard = async () => {
+        const text = transcribedData?.text?.trim() ?? "";
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error("Failed to copy:", err);
+        }
     };
 
     // Scroll to the bottom when the component updates
@@ -49,42 +25,36 @@ export default function Transcript({ transcribedData }) {
             );
 
             if (diff <= 64) {
-                // We're close enough to the bottom, so scroll to the bottom
                 divRef.current.scrollTop = divRef.current.scrollHeight;
             }
         }
     });
 
+    const text = transcribedData?.text?.trim();
+
+    if (!text) {
+        return null;
+    }
+
     return (
         <div
             ref={divRef}
-            className='w-full flex flex-col my-2 p-4 max-h-[20rem] overflow-y-auto'
+            className="w-full max-w-2xl my-4 p-6 bg-white rounded-lg shadow-xl shadow-black/5 ring-1 ring-slate-700/10 max-h-[20rem] overflow-y-auto"
         >
-            {transcribedData?.chunks &&
-                transcribedData.chunks.map((chunk, i) => (
-                    <div
-                        key={`${i}-${chunk.text}`}
-                        className='w-full flex flex-row mb-2 bg-white rounded-lg p-4 shadow-xl shadow-black/5 ring-1 ring-slate-700/10'
-                    >
-                        <div className='mr-5'>
-                            {formatAudioTimestamp(chunk.timestamp[0])}
-                        </div>
-                        {chunk.text}
-                    </div>
-                ))}
-            {transcribedData && !transcribedData.isBusy && (
-                <div className='w-full text-right'>
+            <p className="text-lg text-slate-800 leading-relaxed whitespace-pre-wrap">
+                {text}
+                {transcribedData?.isBusy && (
+                    <span className="inline-block w-2 h-5 ml-1 bg-slate-400 animate-pulse" />
+                )}
+            </p>
+
+            {!transcribedData.isBusy && (
+                <div className="mt-4 pt-4 border-t border-slate-200 text-right">
                     <button
-                        onClick={exportTXT}
-                        className='text-white bg-green-500 hover:bg-green-600 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-4 py-2 text-center mr-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800 inline-flex items-center'
+                        onClick={copyToClipboard}
+                        className="text-white bg-blue-500 hover:bg-blue-600 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2"
                     >
-                        Export TXT
-                    </button>
-                    <button
-                        onClick={exportJSON}
-                        className='text-white bg-green-500 hover:bg-green-600 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-4 py-2 text-center mr-2 dark:bg-green-600 dark:hover:bg-green-700 dark:focus:ring-green-800 inline-flex items-center'
-                    >
-                        Export JSON
+                        {copied ? "Copied!" : "Copy"}
                     </button>
                 </div>
             )}

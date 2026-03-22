@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useRef } from "react";
 import { useWorker } from "./useWorker";
 import Constants from "../utils/Constants";
 
@@ -55,9 +55,14 @@ import Constants from "../utils/Constants";
 export function useTranscriber() {
     const [transcript, setTranscript] = useState(undefined,);
     const [isBusy, setIsBusy] = useState(false);
-    const [isModelLoading, setIsModelLoading] = useState(false);
+    const [isModelLoading, setIsModelLoading] = useState(true); // Start as loading
+    const [isModelReady, setIsModelReady] = useState(false);
 
     const [progressItems, setProgressItems] = useState([]);
+
+    // Debouncing for incremental transcription
+    const transcriptionPendingRef = useRef(false);
+    const debounceTimeoutRef = useRef(null);
 
     const webWorker = useWorker((event) => {
         const message = event.data;
@@ -105,6 +110,7 @@ export function useTranscriber() {
                 break;
             case "ready":
                 setIsModelLoading(false);
+                setIsModelReady(true);
                 break;
             case "error":
                 setIsBusy(false);
@@ -140,6 +146,19 @@ export function useTranscriber() {
     const onInputChange = useCallback(() => {
         setTranscript(undefined);
     }, []);
+
+    // Preload the model
+    const loadModel = useCallback(() => {
+        if (isModelReady) return; // Already loaded
+
+        setIsModelLoading(true);
+        webWorker.postMessage({
+            type: "load",
+            model,
+            multilingual,
+            quantized,
+        });
+    }, [webWorker, model, multilingual, quantized, isModelReady]);
 
     const postRequest = useCallback(
         async (audioData) => {
@@ -177,13 +196,67 @@ export function useTranscriber() {
         [webWorker, model, multilingual, quantized, subtask, language],
     );
 
+    // Incremental transcription for streaming - with debouncing
+    const transcribeIncremental = useCallback(
+        async (audioData, isFinal = false) => {
+            if (!audioData) return;
+
+            // Skip if already processing and not final
+            if (transcriptionPendingRef.current && !isFinal) {
+                return;
+            }
+
+            // Clear any pending debounce timeout
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+
+            // Set pending flag
+            transcriptionPendingRef.current = true;
+            setIsBusy(true);
+
+            // Convert AudioBuffer to Float32Array
+            let audio;
+            if (audioData.numberOfChannels === 2) {
+                const SCALING_FACTOR = Math.sqrt(2);
+                let left = audioData.getChannelData(0);
+                let right = audioData.getChannelData(1);
+                audio = new Float32Array(left.length);
+                for (let i = 0; i < audioData.length; ++i) {
+                    audio[i] = (SCALING_FACTOR * (left[i] + right[i])) / 2;
+                }
+            } else {
+                audio = audioData.getChannelData(0);
+            }
+
+            // Send to worker
+            webWorker.postMessage({
+                audio,
+                model,
+                multilingual,
+                quantized,
+                subtask: multilingual ? subtask : null,
+                language: multilingual && language !== "auto" ? language : null,
+            });
+
+            // Reset pending flag after debounce delay
+            debounceTimeoutRef.current = setTimeout(() => {
+                transcriptionPendingRef.current = false;
+            }, Constants.TRANSCRIPTION_DEBOUNCE_MS);
+        },
+        [webWorker, model, multilingual, quantized, subtask, language]
+    );
+
     const transcriber = useMemo(() => {
         return {
             onInputChange,
             isBusy,
             isModelLoading,
+            isModelReady,
+            loadModel,
             progressItems,
             start: postRequest,
+            transcribeIncremental,
             output: transcript,
             model,
             setModel,
@@ -199,14 +272,18 @@ export function useTranscriber() {
     }, [
         isBusy,
         isModelLoading,
+        isModelReady,
+        loadModel,
         progressItems,
         postRequest,
+        transcribeIncremental,
         transcript,
         model,
         multilingual,
         quantized,
         subtask,
         language,
+        onInputChange,
     ]);
 
     return transcriber;

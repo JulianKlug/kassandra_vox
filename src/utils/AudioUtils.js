@@ -1,8 +1,8 @@
-function padTime(time: number) {
+function padTime(time) {
     return String(time).padStart(2, "0");
 }
 
-export function formatAudioTimestamp(time: number) {
+export function formatAudioTimestamp(time) {
     const hours = (time / (60 * 60)) | 0;
     time -= hours * (60 * 60);
     const minutes = (time / 60) | 0;
