@@ -1,0 +1,10 @@
+data/audio/*
+data/converted/*
+!data/**/.gitkeep
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+__pycache__/
+*.pyc

@@ -1,0 +1,49 @@
+{
+  "drugs": [
+    "metformine", "aspirine", "omeprazole", "lisinopril", "amlodipine",
+    "atorvastatine", "simvastatine", "amoxicilline", "paracetamol", "ibuprofene",
+    "insuline", "warfarine", "clopidogrel", "ramipril", "bisoprolol",
+    "furosemide", "spironolactone", "levothyroxine", "prednisone", "pantoprazole",
+    "enalapril", "losartan", "valsartan", "hydrochlorothiazide", "gabapentine",
+    "tramadol", "morphine", "oxazepam", "diazepam", "alprazolam"
+  ],
+  "anatomy": [
+    "thoracique", "abdominale", "pulmonaire", "cardiaque", "hepatique",
+    "renale", "cerebrale", "rachidien", "lombaire", "cervicale",
+    "bilaterale", "unilaterale", "pedieux", "radiale", "femorale",
+    "carotidien", "aortique", "mitrale", "tricuspide"
+  ],
+  "abbreviations": [
+    "HbA1c", "IMC", "BID", "TID", "QID", "INR", "AVK", "AINS",
+    "ECG", "IRM", "CT", "TSH", "PSA", "CRP", "VS", "NFS",
+    "ASAT", "ALAT", "GGT", "LDL", "HDL", "BNP", "T2DM", "T1DM",
+    "AVC", "SCA", "BPCO", "IRC", "IEC", "ARA2"
+  ],
+  "units": [
+    "mmHg", "mg", "ml", "mg/dL", "mmol/L", "g/L", "UI/L",
+    "bpm", "kg", "cm", "mEq/L", "µg"
+  ],
+  "conditions": [
+    "diabete", "hypertension", "hypercholesterolemie", "insuffisance",
+    "fibrillation", "arythmie", "tachycardie", "bradycardie",
+    "pneumonie", "bronchite", "embolie", "thrombose",
+    "arthrose", "osteoporose", "hypothyroidie", "hyperthyroidie",
+    "depression", "anxiete", "insomnie"
+  ],
+  "clinical": [
+    "auscultation", "palpation", "percussion", "anamn\u00e8se",
+    "diagnostic", "pronostic", "prescription", "posologie",
+    "compliance", "observance", "antecedent", "symptome",
+    "frequence", "saturation", "glycemie", "creatinine",
+    "bilirubine", "albuminurie", "proteinurie", "hematurie"
+  ],
+  "drug_suffixes": [
+    "-ine", "-ol", "-pril", "-sartan", "-statine", "-dipine",
+    "-olol", "-semide", "-azole", "-mycine", "-cilline"
+  ],
+  "dosage_patterns": [
+    "\\d+\\s*mg", "\\d+\\s*ml", "\\d+\\s*g",
+    "deux fois par jour", "trois fois par jour", "une fois par jour",
+    "matin et soir", "au coucher", "a jeun"
+  ]
+}

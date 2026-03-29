@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=393, initial-scale=1">
+<title>Vox - Dictation Screen</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #fafafa; color: #1a1a1a; width: 393px; height: 852px; overflow: hidden; position: relative; }
+
+  /* Status bar mock */
+  .status-bar { height: 54px; padding: 14px 20px 0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; }
+
+  /* Top bar */
+  .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 20px 12px; border-bottom: 1px solid #e5e5e5; }
+  .top-bar h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+  .top-bar .right { display: flex; align-items: center; gap: 12px; }
+  .connection-dot { width: 8px; height: 8px; border-radius: 50%; background: #34c759; display: inline-block; }
+  .connection-label { font-size: 11px; color: #8e8e93; }
+  .gear { font-size: 20px; color: #8e8e93; cursor: pointer; }
+
+  /* Specialty badge */
+  .specialty { padding: 8px 20px; }
+  .specialty span { font-size: 12px; color: #8e8e93; background: #f2f2f7; padding: 4px 10px; border-radius: 12px; }
+
+  /* Transcript area */
+  .transcript { flex: 1; padding: 16px 20px; overflow-y: auto; position: absolute; top: 130px; bottom: 160px; left: 0; right: 0; }
+  .transcript p { font-size: 16px; line-height: 1.6; color: #1a1a1a; margin-bottom: 12px; }
+  .transcript .section-heading { font-size: 14px; font-weight: 700; color: #636366; text-transform: uppercase; letter-spacing: 0.5px; margin: 16px 0 8px; }
+  .transcript .correction { background: #fff3cd; padding: 1px 4px; border-radius: 3px; cursor: pointer; }
+  .transcript .cursor { display: inline-block; width: 2px; height: 18px; background: #007aff; animation: blink 1s infinite; vertical-align: text-bottom; }
+  @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+  /* Bottom controls */
+  .controls { position: absolute; bottom: 0; left: 0; right: 0; height: 160px; background: #fff; border-top: 1px solid #e5e5e5; display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 34px; }
+  .record-btn { width: 72px; height: 72px; border-radius: 50%; background: #0a7e8c; border: none; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(10,126,140,0.3); }
+  .record-btn .inner { width: 24px; height: 24px; border-radius: 4px; background: #fff; }
+  .record-btn.recording { background: #ff3b30; animation: pulse 2s infinite; }
+  .record-btn.recording .inner { border-radius: 50%; width: 28px; height: 28px; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,59,48,0.4); } 50% { box-shadow: 0 0 0 12px rgba(255,59,48,0); } }
+  .timer { font-size: 13px; color: #8e8e93; margin-top: 8px; font-variant-numeric: tabular-nums; }
+
+  /* Tab bar */
+  .tab-bar { position: absolute; bottom: 0; left: 0; right: 0; height: 34px; display: flex; justify-content: center; gap: 40px; padding-bottom: 8px; }
+  .tab-bar span { font-size: 10px; color: #8e8e93; }
+  .tab-bar span.active { color: #0a7e8c; }
+</style>
+</head>
+<body>
+  <div class="status-bar">
+    <span>9:41</span>
+    <span style="display:flex;gap:4px;align-items:center;">
+      <span style="font-size:10px;">&#9679;&#9679;&#9679;&#9679;</span>
+      <span style="font-size:10px;">WiFi</span>
+      <span style="font-size:10px;">100%</span>
+    </span>
+  </div>
+
+  <div class="top-bar">
+    <h1>Vox</h1>
+    <div class="right">
+      <span class="connection-dot"></span>
+      <span class="connection-label">Bureau connecte</span>
+      <span class="gear">&#9881;</span>
+    </div>
+  </div>
+
+  <div class="specialty">
+    <span>Endocrinologie</span>
+  </div>
+
+  <div class="transcript">
+    <p class="section-heading">Anamnese</p>
+    <p>Patient de 54 ans, connu pour un diabete de type 2 depuis 2018, se presente pour un controle de routine. Il rapporte une bonne compliance au traitement actuel.</p>
+
+    <p class="section-heading">Examen clinique</p>
+    <p>Tension arterielle 138/82 mmHg. Frequence cardiaque 72 bpm. Poids 87 kg, taille 175 cm, IMC 28.4. Examen cardiovasculaire sans particularite. Pieds: sensibilite conservee, pouls pedieux presents bilateralement.</p>
+
+    <p class="section-heading">Prescription</p>
+    <p><span class="correction">Metformine</span> 500 mg deux fois par jour. Controle HbA1c dans 3 mois.<span class="cursor"></span></p>
+  </div>
+
+  <div class="controls">
+    <button class="record-btn recording">
+      <div class="inner"></div>
+    </button>
+    <div class="timer">02:34</div>
+  </div>
+</body>
+</html>
