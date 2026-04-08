@@ -15,23 +15,25 @@ from config import (
 
 def find_model_path():
     """Find the whisper model file."""
-    # Homebrew location
+    # Common locations to check
+    candidates = [
+        Path("/opt/homebrew/share/whisper-cpp/ggml-large-v3.bin"),
+        Path("/usr/local/share/whisper-cpp/ggml-large-v3.bin"),
+        Path.home() / ".cache" / "whisper" / "ggml-large-v3.bin",
+        Path.home() / "models" / "ggml-large-v3.bin",
+        Path("models") / "ggml-large-v3.bin",
+    ]
+
+    # Try Homebrew prefix
     result = subprocess.run(
-        ["brew", "--prefix", "whisper-cpp"],
+        ["brew", "--prefix"],
         capture_output=True, text=True,
     )
     if result.returncode == 0:
         brew_prefix = result.stdout.strip()
-        model_path = Path(brew_prefix) / "share" / "whisper-cpp" / "models" / "ggml-large-v3.bin"
-        if model_path.exists():
-            return str(model_path)
+        candidates.insert(0, Path(brew_prefix) / "share" / "whisper-cpp" / "ggml-large-v3.bin")
 
-    # Common locations
-    for candidate in [
-        Path.home() / ".cache" / "whisper" / "ggml-large-v3.bin",
-        Path.home() / "models" / "ggml-large-v3.bin",
-        Path("models") / "ggml-large-v3.bin",
-    ]:
+    for candidate in candidates:
         if candidate.exists():
             return str(candidate)
 
@@ -40,48 +42,40 @@ def find_model_path():
 
 def transcribe_file(wav_path, model_path, prompt=None):
     """Transcribe a single WAV file with whisper.cpp."""
+    # Use a temp output prefix; whisper-cli writes {prefix}.txt
+    out_prefix = str(wav_path.parent / f".whisper-out-{wav_path.stem}")
     cmd = [
         WHISPER_CMD,
         "-m", model_path,
         "-l", WHISPER_LANGUAGE,
         "-f", str(wav_path),
-        "--output-json",
-        "--no-timestamps",
+        "-otxt",
+        "-of", out_prefix,
     ]
     if prompt:
         cmd.extend(["--prompt", prompt])
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  ERROR transcribing {wav_path.name}: {result.stderr[:300]}")
+        print(f"  ERROR transcribing {wav_path.name}: {result.stderr[-500:]}")
         return None
 
-    # whisper-cpp writes JSON to {input}.json
-    json_output = Path(str(wav_path) + ".json")
-    if not json_output.exists():
-        # Try parsing stdout as fallback
-        text = result.stdout.strip()
-        return {"file": wav_path.name, "text": text, "segments": []}
+    txt_output = Path(out_prefix + ".txt")
+    if not txt_output.exists():
+        print(f"  ERROR: no output file produced for {wav_path.name}")
+        return None
 
-    with open(json_output) as f:
-        data = json.load(f)
+    text = txt_output.read_text().strip()
+    txt_output.unlink()  # cleanup
 
-    # Clean up the auto-generated JSON file
-    json_output.unlink()
-
-    # Normalize the output format
-    text = data.get("text", "")
-    if not text and "transcription" in data:
-        segments = data["transcription"]
-        text = " ".join(s.get("text", "").strip() for s in segments)
-    elif not text and "segments" in data:
-        segments = data["segments"]
-        text = " ".join(s.get("text", "").strip() for s in segments)
+    # Each line in the txt output is a segment
+    segments = [{"text": line.strip()} for line in text.split("\n") if line.strip()]
+    full_text = " ".join(s["text"] for s in segments)
 
     return {
         "file": wav_path.name,
-        "text": text.strip(),
-        "segments": data.get("transcription", data.get("segments", [])),
+        "text": full_text,
+        "segments": segments,
     }
 
 

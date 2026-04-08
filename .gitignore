@@ -1,4 +1,53 @@
-.DS_Store
+# macOS / editors
 .DS_Store
 .claude/settings.local.json
-.gstack/browse-network.log
+.gstack/
+
+# Node / Expo / React Native
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# iOS / Android build outputs
+ios/
+android/
+*.xcworkspace
+*.xcodeproj
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Spike: medical content (audio recordings, source notes, transcriptions)
+# These contain real-style clinical text and should not be committed.
+spike/data/audio/*
+spike/data/converted/*
+spike/data/transcriptions/*
+spike/data/ground_truth/*
+spike/data/corrected/*
+spike/data/reports/*
+spike/data/sample_text_recordings.docx
+!spike/data/**/.gitkeep
+
+# Audio files anywhere
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac

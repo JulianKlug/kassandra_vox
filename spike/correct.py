@@ -51,7 +51,6 @@ def has_context(text_words, context_terms, position, window=10):
 def apply_corrections(text, corrections):
     """Apply correction dictionary to text. Returns corrected text and list of applied corrections."""
     applied = []
-    words = text.split()
 
     for entry in corrections:
         pattern = entry["pattern"]
@@ -73,14 +72,19 @@ def apply_corrections(text, corrections):
             continue
 
         # Fuzzy match: check each word/word-pair against the pattern
+        # Re-split from current text so previous corrections are preserved
+        words = text.split()
         pattern_words = pattern.lower().split()
         pattern_len = len(pattern_words)
 
         i = 0
         new_words = list(words)
+        fuzzy_applied = False
         while i <= len(new_words) - pattern_len:
             candidate = " ".join(new_words[i:i + pattern_len]).lower()
-            ed = levenshtein_distance(candidate, pattern.lower())
+            # Strip trailing punctuation from candidate for matching
+            candidate_clean = candidate.rstrip(".,;:!?")
+            ed = levenshtein_distance(candidate_clean, pattern.lower())
 
             # Apply if within edit distance threshold
             threshold = max_ed
@@ -89,20 +93,33 @@ def apply_corrections(text, corrections):
                 threshold = max_ed + 1
 
             if 0 < ed <= threshold:
-                # Replace the words
-                new_words[i:i + pattern_len] = correction.split()
+                # Preserve trailing punctuation
+                trailing = ""
+                last_word = new_words[i + pattern_len - 1]
+                for ch in reversed(last_word):
+                    if ch in ".,;:!?":
+                        trailing = ch + trailing
+                    else:
+                        break
+
+                replacement = correction.split()
+                if trailing:
+                    replacement[-1] = replacement[-1] + trailing
+
+                new_words[i:i + pattern_len] = replacement
                 applied.append({
                     "pattern": pattern,
                     "original": candidate,
                     "correction": correction,
                     "method": f"fuzzy (ed={ed})",
                 })
-                i += len(correction.split())
+                fuzzy_applied = True
+                i += len(replacement)
             else:
                 i += 1
 
-        text = " ".join(new_words)
-        words = text.split()
+        if fuzzy_applied:
+            text = " ".join(new_words)
 
     return text, applied
 

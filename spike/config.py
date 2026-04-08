@@ -12,7 +12,7 @@ CORRECTED_DIR = DATA_DIR / "corrected"
 REPORTS_DIR = DATA_DIR / "reports"
 
 # Whisper configuration
-WHISPER_CMD = "whisper-cpp"  # Homebrew installs as whisper-cpp
+WHISPER_CMD = "whisper-cli"  # Homebrew whisper-cpp installs as whisper-cli
 WHISPER_MODEL = "large-v3"
 WHISPER_LANGUAGE = "fr"
 PROMPT_FILE = SPIKE_DIR / "prompt.txt"

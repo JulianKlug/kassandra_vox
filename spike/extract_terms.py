@@ -24,7 +24,7 @@ def extract_terms(text, vocab=None):
     words = text_lower.split()
 
     # Dictionary lookup for known terms
-    for category in ["drugs", "anatomy", "conditions", "clinical"]:
+    for category in ["drugs", "anatomy", "conditions", "clinical", "germs"]:
         for term in vocab.get(category, []):
             term_lower = term.lower()
             idx = text_lower.find(term_lower)

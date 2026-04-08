@@ -1,45 +1,73 @@
 {
   "drugs": [
     "metformine", "aspirine", "omeprazole", "lisinopril", "amlodipine",
-    "atorvastatine", "simvastatine", "amoxicilline", "paracetamol", "ibuprofene",
+    "atorvastatine", "simvastatine", "amoxicilline", "paracetamol", "paracétamol", "ibuprofene",
     "insuline", "warfarine", "clopidogrel", "ramipril", "bisoprolol",
-    "furosemide", "spironolactone", "levothyroxine", "prednisone", "pantoprazole",
+    "furosemide", "lasix", "spironolactone", "levothyroxine", "prednisone", "pantoprazole",
     "enalapril", "losartan", "valsartan", "hydrochlorothiazide", "gabapentine",
-    "tramadol", "morphine", "oxazepam", "diazepam", "alprazolam"
+    "tramadol", "morphine", "oxazepam", "diazepam", "alprazolam", "midazolam",
+    "noradrenaline", "noradrénaline", "vasopressine", "sandostatine", "amiodarone",
+    "ceftriaxone", "vancomycine", "vanco", "méropénème", "meropenem", "mero",
+    "pipéracilline", "piperacilline", "tazobactam", "anidulafongine", "anidula",
+    "co-amox", "co-amoxicilline", "n-acetyl-cysteine", "n-acétylcystéine", "nac",
+    "hydrocortisone", "dexdor", "dexmedetomidine", "curare",
+    "cristalloides", "cristalloïdes", "albumine", "bicarbonate"
   ],
   "anatomy": [
-    "thoracique", "abdominale", "pulmonaire", "cardiaque", "hepatique",
-    "renale", "cerebrale", "rachidien", "lombaire", "cervicale",
-    "bilaterale", "unilaterale", "pedieux", "radiale", "femorale",
-    "carotidien", "aortique", "mitrale", "tricuspide"
+    "thoracique", "abdominale", "pulmonaire", "cardiaque", "hépatique", "hepatique",
+    "rénale", "renale", "cérébrale", "cerebrale", "rachidien", "lombaire", "cervicale",
+    "bilaterale", "bilatérale", "unilaterale", "unilatérale", "pedieux", "pédieux",
+    "radiale", "femorale", "fémorale", "carotidien", "aortique", "mitrale", "tricuspide",
+    "frontal", "convexitaire", "sous-dural", "sous-arachnoïdienne", "intraveineuse",
+    "oesophagiennes", "œsophagiennes", "ventriculaire", "auriculaire", "biliaires",
+    "vasculaire", "extra-rénale", "vasoactive", "vasoactives"
   ],
   "abbreviations": [
     "HbA1c", "IMC", "BID", "TID", "QID", "INR", "AVK", "AINS",
-    "ECG", "IRM", "CT", "TSH", "PSA", "CRP", "VS", "NFS",
+    "ECG", "EEG", "IRM", "CT", "TSH", "PSA", "CRP", "VS", "NFS",
     "ASAT", "ALAT", "GGT", "LDL", "HDL", "BNP", "T2DM", "T1DM",
-    "AVC", "SCA", "BPCO", "IRC", "IEC", "ARA2"
+    "AVC", "SCA", "BPCO", "IRC", "IEC", "ARA2", "NSE", "PES",
+    "GCS", "SNG", "OGD", "VO", "TIPS", "EER", "IPP", "IRA", "ALF",
+    "FiO2", "Pcrête", "MSG", "NRA", "ACR", "PFC", "G20", "MTL",
+    "CEC", "AMID", "AMIG", "IVA", "CX", "US"
   ],
   "units": [
     "mmHg", "mg", "ml", "mg/dL", "mmol/L", "g/L", "UI/L",
-    "bpm", "kg", "cm", "mEq/L", "µg"
+    "bpm", "kg", "cm", "mm", "mEq/L", "µg"
   ],
   "conditions": [
-    "diabete", "hypertension", "hypercholesterolemie", "insuffisance",
-    "fibrillation", "arythmie", "tachycardie", "bradycardie",
-    "pneumonie", "bronchite", "embolie", "thrombose",
-    "arthrose", "osteoporose", "hypothyroidie", "hyperthyroidie",
-    "depression", "anxiete", "insomnie"
+    "diabete", "diabète", "hypertension", "hypercholesterolemie", "hypercholestérolémie",
+    "insuffisance", "fibrillation", "arythmie", "tachycardie", "bradycardie",
+    "pneumonie", "bronchite", "embolie", "thrombose", "saignement", "hémorragie",
+    "hemorragie", "intoxication", "encephalopathie", "encéphalopathie",
+    "hyperammoniémie", "hyperurémie", "hypernatrémie", "hypoglycémie", "hyperlactatémie",
+    "vasoplégie", "ascite", "varices", "ulcère", "hématome", "traumatisme",
+    "angor", "instabilité", "instable", "septique", "néphrotique",
+    "cardiogène", "cardiopathie", "intubé", "sedaté", "sédaté",
+    "hépatomégalie", "hepatomegalie", "stéatosique", "pancréatite", "pancréactite",
+    "syndrome", "infectiologique", "hémodynamique", "hémodynamiquement"
   ],
   "clinical": [
-    "auscultation", "palpation", "percussion", "anamn\u00e8se",
+    "auscultation", "palpation", "percussion", "anamnèse", "anamnese",
     "diagnostic", "pronostic", "prescription", "posologie",
-    "compliance", "observance", "antecedent", "symptome",
-    "frequence", "saturation", "glycemie", "creatinine",
-    "bilirubine", "albuminurie", "proteinurie", "hematurie"
+    "compliance", "observance", "antecedent", "symptome", "symptôme",
+    "frequence", "fréquence", "saturation", "glycemie", "glycémie",
+    "creatinine", "créatinine", "bilirubine", "albuminurie", "proteinurie", "hematurie",
+    "patient", "patiente", "soutien", "traitement", "endoscopie", "dialyse",
+    "neuroprotection", "neuropronostication", "extubation", "réveil",
+    "antibiothérapie", "ventilation", "ventillation", "sédation", "sedation",
+    "réplétion", "volémique", "aminergique", "inotrope", "sclérose",
+    "ligature", "ligaturé", "ligaturées", "ligaturés", "rupture", "rupturé", "rupturées",
+    "transferé", "transféré", "pontage", "coronarographie", "coronarien",
+    "tronc", "cathéter", "cathethère", "épuration", "extubation",
+    "pouls", "tension", "contraction", "musculaire", "pupilles"
+  ],
+  "germs": [
+    "pseudomonas", "aeruginosa", "pneumoniae", "S.pneumoniae", "S. pneumoniae"
   ],
   "drug_suffixes": [
     "-ine", "-ol", "-pril", "-sartan", "-statine", "-dipine",
-    "-olol", "-semide", "-azole", "-mycine", "-cilline"
+    "-olol", "-semide", "-azole", "-mycine", "-cilline", "-pénème"
   ],
   "dosage_patterns": [
     "\\d+\\s*mg", "\\d+\\s*ml", "\\d+\\s*g",

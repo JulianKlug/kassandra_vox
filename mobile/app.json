@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Vox",
+    "slug": "vox",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#fafafa"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.vox.dictation",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Vox a besoin d'acceder au microphone pour la dictee medicale. L'audio reste sur votre appareil et n'est jamais envoye a un serveur."
+      }
+    },
+    "android": {
+      "package": "com.vox.dictation",
+      "permissions": ["RECORD_AUDIO"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#fafafa"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Vox a besoin d'acceder au microphone pour la dictee medicale."
+        }
+      ]
+    ]
+  }
+}
