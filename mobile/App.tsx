@@ -25,6 +25,8 @@ import {
   downloadModel,
   ensureModelsDir,
   getModelInfo,
+  hasResumableDownload,
+  clearPartialDownload,
   ModelVariant,
   DownloadProgress,
 } from "./src/whisper/model";
@@ -58,11 +60,14 @@ type AppState =
   | "recording"
   | "transcribing";
 
-const MODEL_VARIANT: ModelVariant = "large-v3";
+const MODEL_VARIANT: ModelVariant = "medium";
 
 export default function App() {
   const [state, setState] = useState<AppState>("checking");
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [downloadBytes, setDownloadBytes] = useState(0);
+  const [downloadTotal, setDownloadTotal] = useState(0);
+  const [resumable, setResumable] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +80,9 @@ export default function App() {
         await ensureModelsDir();
         const has = await isModelDownloaded(MODEL_VARIANT);
         if (!has) {
+          // Check if we have a partial download we can resume
+          const canResume = await hasResumableDownload(MODEL_VARIANT);
+          setResumable(canResume);
           setState("needsDownload");
         } else {
           await loadAndReady();
@@ -103,11 +111,29 @@ export default function App() {
     try {
       await downloadModel(MODEL_VARIANT, (p: DownloadProgress) => {
         setDownloadPercent(p.percent);
+        setDownloadBytes(p.bytesWritten);
+        setDownloadTotal(p.totalBytes);
       });
+      setResumable(false);
       await loadAndReady();
     } catch (e: any) {
-      setError(`Download failed: ${e?.message ?? e}`);
+      // Check if we now have something to resume from
+      const canResume = await hasResumableDownload(MODEL_VARIANT);
+      setResumable(canResume);
+      setError(`Telechargement interrompu: ${e?.message ?? e}`);
       setState("needsDownload");
+    }
+  }
+
+  async function handleStartOver() {
+    try {
+      await clearPartialDownload(MODEL_VARIANT);
+      setResumable(false);
+      setDownloadPercent(0);
+      setDownloadBytes(0);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
     }
   }
 
@@ -174,6 +200,9 @@ export default function App() {
 
   function renderDownload() {
     const info = getModelInfo(MODEL_VARIANT);
+    const downloadingNow = state === "downloading";
+    const buttonLabel = resumable ? "Reprendre" : "Telecharger";
+
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.brandTitle}>Vox</Text>
@@ -191,9 +220,15 @@ export default function App() {
           Vos dictees ne quitteront jamais votre telephone.
         </Text>
 
+        <View style={{ height: 16 }} />
+
+        <Text style={styles.privacyHint}>
+          Gardez l'application ouverte pendant le telechargement.
+        </Text>
+
         <View style={{ height: 32 }} />
 
-        {state === "downloading" ? (
+        {downloadingNow ? (
           <View style={{ alignItems: "center" }}>
             <View style={styles.progressBar}>
               <View
@@ -204,16 +239,37 @@ export default function App() {
               />
             </View>
             <Text style={styles.progressText}>
-              {Math.round(downloadPercent * 100)}%
+              {Math.round(downloadPercent * 100)}% &middot; {formatBytes(downloadBytes)}
+              {downloadTotal > 0 ? ` / ${formatBytes(downloadTotal)}` : ""}
             </Text>
           </View>
         ) : (
-          <TouchableOpacity style={styles.primaryButton} onPress={handleDownload}>
-            <Text style={styles.primaryButtonText}>Telecharger</Text>
-          </TouchableOpacity>
+          <View style={{ alignItems: "center" }}>
+            {resumable && (
+              <Text style={styles.resumeNote}>
+                Telechargement partiel detecte. Reprendre la ou il s'est arrete.
+              </Text>
+            )}
+            <TouchableOpacity style={styles.primaryButton} onPress={handleDownload}>
+              <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
+            </TouchableOpacity>
+            {resumable && (
+              <TouchableOpacity onPress={handleStartOver} style={{ marginTop: 16 }}>
+                <Text style={styles.secondaryAction}>Recommencer depuis zero</Text>
+              </TouchableOpacity>
+            )}
+            {error && <Text style={styles.inlineError}>{error}</Text>}
+          </View>
         )}
       </View>
     );
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} o`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} Mo`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} Go`;
   }
 
   function renderLoading(label: string) {
@@ -289,7 +345,11 @@ export default function App() {
   // ----- Main render -----
 
   let content: React.ReactNode;
-  if (error) {
+  // For download errors we keep the user on the download screen so they
+  // can resume; only show the full-screen error for other failures.
+  const isDownloadError = error && state === "needsDownload";
+
+  if (error && !isDownloadError) {
     content = (
       <View style={styles.centerContainer}>
         <Text style={styles.errorTitle}>Erreur</Text>
@@ -361,6 +421,31 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     textAlign: "center",
     lineHeight: 22,
+  },
+  privacyHint: {
+    fontSize: 12,
+    color: COLORS.muted,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  resumeNote: {
+    fontSize: 13,
+    color: COLORS.secondary,
+    textAlign: "center",
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  secondaryAction: {
+    fontSize: 13,
+    color: COLORS.muted,
+    textDecorationLine: "underline",
+  },
+  inlineError: {
+    fontSize: 12,
+    color: COLORS.recording,
+    textAlign: "center",
+    marginTop: 16,
+    paddingHorizontal: 16,
   },
   progressBar: {
     width: 240,
