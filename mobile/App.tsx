@@ -16,10 +16,8 @@ import {
   ScrollView,
   StatusBar,
   Platform,
-  Alert,
+  PermissionsAndroid,
 } from "react-native";
-import { Audio } from "expo-av";
-import * as FileSystem from "expo-file-system/legacy";
 import {
   isModelDownloaded,
   downloadModel,
@@ -32,8 +30,9 @@ import {
 } from "./src/whisper/model";
 import {
   loadModel,
-  transcribeFile,
   isModelLoaded,
+  startRealtimeTranscription,
+  RealtimeHandle,
 } from "./src/whisper/transcriber";
 import { applyCorrections } from "./src/pipeline/correct";
 
@@ -71,7 +70,8 @@ export default function App() {
   const [transcript, setTranscript] = useState("");
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const realtimeRef = useRef<RealtimeHandle | null>(null);
+  const transcriptBaseRef = useRef("");
 
   // Initial: check whether model exists, request mic permission
   useEffect(() => {
@@ -87,13 +87,29 @@ export default function App() {
         } else {
           await loadAndReady();
         }
-        // Request mic permission early
-        await Audio.requestPermissionsAsync();
+        // Request mic permission early on Android
+        await requestMicPermission();
       } catch (e: any) {
         setError(e?.message ?? String(e));
       }
     })();
   }, []);
+
+  async function requestMicPermission(): Promise<boolean> {
+    if (Platform.OS === "android") {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: "Microphone",
+          message: "Vox a besoin du microphone pour la dictee.",
+          buttonPositive: "OK",
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    }
+    // iOS permission is handled via Info.plist + the system prompt at first use
+    return true;
+  }
 
   async function loadAndReady() {
     setState("loadingModel");
@@ -143,56 +159,60 @@ export default function App() {
       return;
     }
     try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert("Microphone", "Permission requise pour la dictee.");
+      const granted = await requestMicPermission();
+      if (!granted) {
+        setError("Permission microphone refusee");
         return;
       }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+
+      // Snapshot the existing transcript so streaming updates only replace
+      // the current dictation segment, not the whole history.
+      transcriptBaseRef.current = transcript;
+      setLatencyMs(null);
+
+      const handle = await startRealtimeTranscription(
+        (update) => {
+          // Apply medical post-processor to each incremental update so the
+          // user sees corrected text in real time, not raw whisper output.
+          const corrected = applyCorrections(update.text);
+          const base = transcriptBaseRef.current;
+          const composed = base
+            ? `${base} ${corrected.text.trim()}`
+            : corrected.text.trim();
+          setTranscript(composed);
+          setLatencyMs(update.processTimeMs);
+
+          if (update.isFinal) {
+            setState("ready");
+            realtimeRef.current = null;
+          }
+        },
+        (errMsg) => {
+          setError(`Transcription: ${errMsg}`);
+          setState("ready");
+          realtimeRef.current = null;
+        }
       );
-      recordingRef.current = recording;
+      realtimeRef.current = handle;
       setState("recording");
     } catch (e: any) {
-      setError(`Recording failed: ${e?.message ?? e}`);
+      setError(`Enregistrement: ${e?.message ?? e}`);
+      setState("ready");
     }
   }
 
   async function handleStopRecording() {
-    const rec = recordingRef.current;
-    if (!rec) return;
+    const handle = realtimeRef.current;
+    if (!handle) return;
     try {
       setState("transcribing");
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      recordingRef.current = null;
-      if (!uri) {
-        setError("No audio recorded");
-        setState("ready");
-        return;
-      }
-
-      // Transcribe
-      const result = await transcribeFile(uri);
-
-      // Apply post-processor (medical corrections)
-      const corrected = applyCorrections(result.text);
-
-      setTranscript((prev) => (prev ? prev + " " : "") + corrected.text.trim());
-      setLatencyMs(result.durationMs);
-      setState("ready");
-
-      // Cleanup audio file
-      try {
-        await FileSystem.deleteAsync(uri, { idempotent: true });
-      } catch {}
+      await handle.stop();
+      // The final result will arrive via the onUpdate callback with
+      // isFinal=true, which transitions us back to "ready".
     } catch (e: any) {
-      setError(`Transcription failed: ${e?.message ?? e}`);
+      setError(`Arret: ${e?.message ?? e}`);
       setState("ready");
+      realtimeRef.current = null;
     }
   }
 
@@ -557,16 +577,18 @@ const styles = StyleSheet.create({
   recordButtonDisabled: {
     opacity: 0.5,
   },
+  // Idle: solid circle (the universal "record" symbol).
   recordButtonInner: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    backgroundColor: "#fff",
-  },
-  recordButtonInnerRecording: {
     width: 28,
     height: 28,
     borderRadius: 14,
+    backgroundColor: "#fff",
+  },
+  // Recording: solid square (the universal "stop" symbol).
+  recordButtonInnerRecording: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
   },
   controlLabel: {
     fontSize: 13,

@@ -6,7 +6,10 @@
  */
 
 import { initWhisper, WhisperContext } from "whisper.rn";
-import type { TranscribeResult as RNTranscribeResult } from "whisper.rn";
+import type {
+  TranscribeResult as RNTranscribeResult,
+  TranscribeRealtimeEvent,
+} from "whisper.rn";
 import { getModelPath, ModelVariant } from "./model";
 
 type Segment = RNTranscribeResult["segments"][number];
@@ -76,4 +79,74 @@ export async function transcribeFile(audioPath: string): Promise<TranscribeResul
     })),
     durationMs,
   };
+}
+
+/**
+ * Realtime dictation handle.
+ *
+ * Returned from startRealtimeTranscription. The caller must invoke stop()
+ * when the user finishes dictating. Partial transcription results stream
+ * in via the onUpdate callback passed to startRealtimeTranscription.
+ */
+export interface RealtimeHandle {
+  stop: () => Promise<void>;
+}
+
+export interface RealtimeUpdate {
+  text: string;
+  isFinal: boolean;
+  recordingTimeMs: number;
+  processTimeMs: number;
+}
+
+/**
+ * Start a realtime dictation session.
+ *
+ * whisper.rn handles audio capture internally (no expo-av needed) and
+ * transcribes the audio in slices. Each slice produces an incremental
+ * update via onUpdate. When the caller invokes stop(), a final event is
+ * delivered with isFinal=true.
+ *
+ * This is the canonical recording path because:
+ * - whisper.rn captures audio in the exact format whisper.cpp expects
+ *   (16kHz mono PCM), avoiding the format-mismatch hallucinations that
+ *   happen when we feed it m4a/AAC from a generic recorder. Those show
+ *   up as Whisper emitting strings like "*bruit de la machine*" or
+ *   "[Music]" because the decoder gets garbage and falls back to its
+ *   most common training-data labels.
+ * - It uses native chunking so dictation feels responsive on long takes.
+ */
+export async function startRealtimeTranscription(
+  onUpdate: (u: RealtimeUpdate) => void,
+  onError: (msg: string) => void
+): Promise<RealtimeHandle> {
+  if (!context) {
+    throw new Error("Model not loaded. Call loadModel() first.");
+  }
+
+  const { stop, subscribe } = await context.transcribeRealtime({
+    language: "fr",
+    initialPrompt: MEDICAL_PROMPT_FR,
+    maxThreads: 4,
+    realtimeAudioSec: 60,        // up to 60s per dictation session
+    realtimeAudioSliceSec: 15,   // process every 15s slice
+    realtimeAudioMinSec: 1,      // start transcribing after 1s of speech
+  });
+
+  subscribe((event: TranscribeRealtimeEvent) => {
+    if (event.error) {
+      onError(event.error);
+      return;
+    }
+    if (event.data) {
+      onUpdate({
+        text: event.data.result,
+        isFinal: !event.isCapturing,
+        recordingTimeMs: event.recordingTime,
+        processTimeMs: event.processTime,
+      });
+    }
+  });
+
+  return { stop };
 }
