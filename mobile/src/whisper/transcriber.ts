@@ -7,10 +7,23 @@
  */
 
 import { initWhisper, WhisperContext } from "whisper.rn";
-import { RealtimeTranscriber } from "whisper.rn/realtime-transcription";
-import { AudioPcmStreamAdapter } from "whisper.rn/realtime-transcription/adapters";
-import type { RealtimeTranscribeEvent } from "whisper.rn/realtime-transcription";
+// Use src/ paths per whisper.rn README: "If your RN packager is not enable
+// package exports support, use whisper.rn/src/realtime-transcription"
+// @ts-ignore -- Metro resolves this via file-based fallback
+import { RealtimeTranscriber } from "whisper.rn/src/realtime-transcription";
+// @ts-ignore
+import { AudioPcmStreamAdapter } from "whisper.rn/src/realtime-transcription/adapters/AudioPcmStreamAdapter";
 import { getModelPath, ModelVariant } from "./model";
+
+// Types imported separately for TS (Metro doesn't need these at runtime)
+type RealtimeTranscribeEvent = {
+  type: "start" | "transcribe" | "end" | "error";
+  sliceIndex: number;
+  data?: { result: string; segments: Array<{ text: string; t0: number; t1: number }> };
+  isCapturing: boolean;
+  processTime: number;
+  recordingTime: number;
+};
 
 // Medical vocabulary prompt (from spike/prompt.txt)
 export const MEDICAL_PROMPT_FR =
