@@ -31,7 +31,7 @@ const MODELS: Record<ModelVariant, ModelInfo> = {
   medium: {
     url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
     filename: "ggml-medium.bin",
-    sizeBytes: 1_533_763_968, // ~1.5 GB
+    sizeBytes: 1_533_763_059, // ~1.5 GB (verified checksum)
     sizeLabel: "1.5 GB",
   },
 };

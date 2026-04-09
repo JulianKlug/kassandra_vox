@@ -103,12 +103,12 @@ export async function startRealtimeTranscription(
       // fs: skip (only needed for audioOutputPath / saving WAV files)
     },
     {
-      audioSliceSec: 15,       // process audio in 15-second slices
-      audioMinSec: 1,          // start transcribing after 1s of speech
+      audioSliceSec: 30,       // whisper's native chunk size (trained on 30s)
+      audioMinSec: 5,          // need at least 5s of audio for meaningful results
       initialPrompt: MEDICAL_PROMPT_FR,
       transcribeOptions: {
         language: "fr",
-        maxThreads: 4,
+        maxThreads: 6,          // S22 has 8 cores, use 6
       },
       logger: (msg: string) => console.log(`[whisper] ${msg}`),
     },
