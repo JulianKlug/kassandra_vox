@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@fugood/react-native-audio-pcm-stream": "^1.1.4",
     "expo": "~54.0.33",
     "expo-av": "~16.0.8",
     "expo-dev-client": "~6.0.20",
