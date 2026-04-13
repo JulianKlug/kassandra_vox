@@ -1,8 +1,11 @@
 [
   {"pattern": "hémodialyquement", "correction": "hémodynamiquement", "context": ["instable", "patient"], "edit_distance": 2},
+  {"pattern": "émodynèquement", "correction": "hémodynamiquement", "context": ["instable", "patient"], "edit_distance": 3},
   {"pattern": "poux perçues", "correction": "pouls perçus", "context": ["patient"], "edit_distance": 2},
   {"pattern": "nandraline", "correction": "noradrénaline", "context": ["soutien", "vasopressine", "amine"], "edit_distance": 3},
-  {"pattern": "d'inétudeur", "correction": "d'inhibiteur", "context": ["pompe", "proton", "IPP"], "edit_distance": 3},
+  {"pattern": "nord reine", "correction": "noradrénaline", "context": ["soutien", "vasopressine"], "edit_distance": 3},
+  {"pattern": "nordaline", "correction": "noradrénaline", "context": ["soutien", "vasopressine"], "edit_distance": 3},
+  {"pattern": "d'inétudeur", "correction": "d'inhibiteur", "context": ["pompe", "proton"], "edit_distance": 3},
   {"pattern": "sang de satine", "correction": "sandostatine", "context": ["traitement", "endoscopie", "varice"], "edit_distance": 3},
   {"pattern": "auto-humain", "correction": "auto-immun", "context": ["bilan"], "edit_distance": 2},
   {"pattern": "enacétylcystéine", "correction": "N-acétylcystéine", "context": ["soutien", "intoxication", "hépatique"], "edit_distance": 2},
@@ -16,8 +19,19 @@
   {"pattern": "vaséoactives", "correction": "vasoactives", "context": ["amine"], "edit_distance": 2},
   {"pattern": "aminérgique", "correction": "aminergique", "context": ["soutien", "besoin"], "edit_distance": 1},
   {"pattern": "aminérgiques", "correction": "aminergiques", "context": ["besoin"], "edit_distance": 1},
-  {"pattern": "hépatomegalie", "correction": "hépatomégalie", "context": ["US", "hépatique"], "edit_distance": 1},
-  {"pattern": "8 en 3", "correction": "83", "context": ["hémoglobine", "chutant"], "edit_distance": 0},
+  {"pattern": "hépatomegalie", "correction": "hépatomégalie", "context": ["hépatique"], "edit_distance": 1},
   {"pattern": "pseudomonas aeruginosa", "correction": "Pseudomonas aeruginosa", "context": ["culture", "bronchique"], "edit_distance": 0},
-  {"pattern": "auto-immune", "correction": "auto-immun", "context": ["bilan"], "edit_distance": 1}
+  {"pattern": "auto-immune", "correction": "auto-immun", "context": ["bilan"], "edit_distance": 1},
+
+  {"pattern": "bicardonal de soldum", "correction": "bicarbonate de sodium", "context": ["expansion"], "edit_distance": 3},
+  {"pattern": "bicardonal", "correction": "bicarbonate", "context": ["sodium", "expansion"], "edit_distance": 2},
+  {"pattern": "soldum", "correction": "sodium", "context": ["bicarbonate"], "edit_distance": 2},
+  {"pattern": "catanayse", "correction": "cathéter", "context": ["dialyse", "équipé"], "edit_distance": 3},
+  {"pattern": "interxigation", "correction": "intoxication", "context": ["raison", "metformine"], "edit_distance": 3},
+  {"pattern": "formule", "correction": "metformine", "context": ["intoxication", "raison"], "edit_distance": 3},
+  {"pattern": "à la main de formule", "correction": "à la metformine", "context": ["intoxication"], "edit_distance": 3},
+  {"pattern": "volénique", "correction": "volémique", "context": ["expansion", "réplétion"], "edit_distance": 1},
+  {"pattern": "albuminé", "correction": "albumine", "context": ["cristalloïde", "expansion"], "edit_distance": 1},
+  {"pattern": "par l'allemand", "correction": "parallèlement", "context": ["expansion", "soutien"], "edit_distance": 3},
+  {"pattern": "trazéro trois", "correction": "treize-oh-trois", "context": ["le"], "edit_distance": 3}
 ]

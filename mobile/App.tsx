@@ -106,30 +106,34 @@ export default function App() {
       return;
     }
     try {
-      // Reset current segment tracking
+      // Reset segment tracking.
+      // finalized = completed segments (after endpoint detection)
+      // currentPartial = the in-progress segment being updated
       transcriptSegments.current = [];
 
       const handle = await startSherpaRealtime(
         (update) => {
-          // Apply medical post-processor to each partial result
-          const corrected = applyCorrections(update.text);
-          if (corrected.text.trim()) {
-            // Update current segment with latest partial
-            const segments = [...transcriptSegments.current];
-            segments[segments.length] = corrected.text.trim();
-            // But the last segment is the "in progress" one
-            // that keeps getting replaced until isEndpoint
-            const allText = segments.join(" ");
-            setTranscript((prev) => {
-              // Keep everything before this recording session, add new text
-              const base = prev.split("").length > 0 ? "" : "";
-              return allText;
-            });
-          }
-          if (update.isEndpoint && update.text.trim()) {
-            // Endpoint reached: finalize this segment, start accumulating next
-            const corrected2 = applyCorrections(update.text);
-            transcriptSegments.current.push(corrected2.text.trim());
+          // Lowercase the output (zipformer model outputs ALL CAPS)
+          const rawText = update.text.toLowerCase().trim();
+          if (!rawText) return;
+
+          // Apply medical post-processor
+          const corrected = applyCorrections(rawText);
+          const correctedText = corrected.text.trim();
+          if (!correctedText) return;
+
+          if (update.isEndpoint) {
+            // Finalize this segment: add to completed segments
+            transcriptSegments.current.push(correctedText);
+            // Build full transcript from all finalized segments
+            setTranscript(transcriptSegments.current.join(" "));
+          } else {
+            // Partial update: show finalized segments + current partial
+            const finalized = transcriptSegments.current.join(" ");
+            const full = finalized
+              ? `${finalized} ${correctedText}`
+              : correctedText;
+            setTranscript(full);
           }
         },
         (errMsg) => {
