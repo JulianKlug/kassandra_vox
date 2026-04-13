@@ -13,6 +13,7 @@
 import {
   ModelCategory,
   ensureModelByCategory,
+  refreshModelsByCategory,
 } from "react-native-sherpa-onnx/download";
 import type { DownloadProgress } from "react-native-sherpa-onnx/download";
 import { createStreamingSTT } from "react-native-sherpa-onnx/stt";
@@ -50,6 +51,9 @@ let engine: StreamingSttEngine | null = null;
 export async function ensureFrenchModel(
   onProgress?: (p: SherpaDownloadProgress) => void
 ): Promise<string> {
+  // Refresh the model registry from GitHub releases so the ID is known
+  await refreshModelsByCategory(ModelCategory.Stt, { forceRefresh: false });
+
   const result = await ensureModelByCategory(ModelCategory.Stt, FRENCH_MODEL_ID, {
     onProgress: (p: DownloadProgress) => {
       if (onProgress) {
