@@ -26,10 +26,11 @@ import type {
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 
 // French streaming models tried:
-// 1. NeMo Fast Conformer Transducer (435MB) - NVidia, 14K hours, best accuracy
-// 2. Zipformer FR 2023 mobile (351MB) - decent speed, poor medical accuracy
-// 3. Kroko (55MB) - crashed on init (onnxruntime compat issue)
-const FRENCH_MODEL_ID = "sherpa-onnx-nemo-fast-conformer-transducer-en-de-es-fr-14288";
+// 1. NeMo Fast Conformer CTC int8 (98MB) - NVidia, 14K hours, streaming via nemo_ctc
+// 2. NeMo Fast Conformer Transducer (435MB) - OFFLINE ONLY, not streaming-compatible
+// 3. Zipformer FR 2023 mobile (351MB) - decent speed, poor medical accuracy
+// 4. Kroko (55MB) - crashed on init (onnxruntime compat issue)
+const FRENCH_MODEL_ID = "sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8";
 
 export interface SherpaDownloadProgress {
   phase: string;
