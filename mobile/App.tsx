@@ -22,10 +22,18 @@ import {
   ensureFrenchModel,
   initSherpaEngine,
   isSherpaReady,
-  startSherpaRealtime,
-  SherpaRealtimeHandle,
   SherpaDownloadProgress,
 } from "./src/stt/sherpa-streaming";
+import {
+  downloadWhisperModel,
+  isWhisperModelDownloaded,
+  initWhisperOffline,
+} from "./src/stt/whisper-offline";
+import {
+  startHybridTranscription,
+  HybridHandle,
+  HybridUpdate,
+} from "./src/stt/hybrid-engine";
 import { applyCorrections } from "./src/pipeline/correct";
 
 // Design tokens (from DESIGN.md)
@@ -56,9 +64,9 @@ export default function App() {
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [downloadPhase, setDownloadPhase] = useState("");
   const [transcript, setTranscript] = useState("");
+  const [offlineReady, setOfflineReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const realtimeRef = useRef<SherpaRealtimeHandle | null>(null);
-  const transcriptSegments = useRef<string[]>([]);
+  const hybridRef = useRef<HybridHandle | null>(null);
 
   // Initial: download model if needed, init engine, request mic permission
   useEffect(() => {
@@ -86,17 +94,43 @@ export default function App() {
     setState("downloading");
     setError(null);
     try {
-      // ensureModel downloads + extracts if not already present
+      // 1. Download + init the streaming zipformer (351MB, for real-time)
+      setDownloadPhase("Modele streaming");
       const modelPath = await ensureFrenchModel((p: SherpaDownloadProgress) => {
-        setDownloadPercent(p.percent);
-        setDownloadPhase(p.phase);
+        setDownloadPercent(p.percent * 0.5); // first half of progress
+        setDownloadPhase("Modele streaming");
       });
+
       setState("loadingModel");
       await initSherpaEngine(modelPath);
+
+      // 2. Download the whisper distil-fr model (513MB, for offline accuracy)
+      // Do this in the background so the user can start dictating immediately
       setState("ready");
+      downloadWhisperInBackground();
     } catch (e: any) {
       setError(`Initialisation: ${e?.message ?? e}`);
       setState("needsDownload");
+    }
+  }
+
+  async function downloadWhisperInBackground() {
+    try {
+      const hasModel = await isWhisperModelDownloaded();
+      if (!hasModel) {
+        console.log("[vox] Downloading whisper distil-fr in background...");
+        await downloadWhisperModel((p) => {
+          // Don't show progress to user, it's background
+          console.log(`[vox] Whisper download: ${Math.round(p.percent)}%`);
+        });
+      }
+      console.log("[vox] Loading whisper distil-fr...");
+      await initWhisperOffline();
+      setOfflineReady(true);
+      console.log("[vox] Whisper offline engine ready");
+    } catch (e: any) {
+      // Non-fatal: streaming still works without offline pass
+      console.warn(`[vox] Whisper offline init failed (non-fatal): ${e?.message ?? e}`);
     }
   }
 
@@ -106,43 +140,17 @@ export default function App() {
       return;
     }
     try {
-      // Reset segment tracking.
-      // finalized = completed segments (after endpoint detection)
-      // currentPartial = the in-progress segment being updated
-      transcriptSegments.current = [];
-
-      const handle = await startSherpaRealtime(
-        (update) => {
-          // Lowercase the output (zipformer model outputs ALL CAPS)
-          const rawText = update.text.toLowerCase().trim();
-          if (!rawText) return;
-
-          // Apply medical post-processor
-          const corrected = applyCorrections(rawText);
-          const correctedText = corrected.text.trim();
-          if (!correctedText) return;
-
-          if (update.isEndpoint) {
-            // Finalize this segment: add to completed segments
-            transcriptSegments.current.push(correctedText);
-            // Build full transcript from all finalized segments
-            setTranscript(transcriptSegments.current.join(" "));
-          } else {
-            // Partial update: show finalized segments + current partial
-            const finalized = transcriptSegments.current.join(" ");
-            const full = finalized
-              ? `${finalized} ${correctedText}`
-              : correctedText;
-            setTranscript(full);
-          }
+      const handle = await startHybridTranscription(
+        (update: HybridUpdate) => {
+          setTranscript(update.text);
         },
         (errMsg) => {
           setError(`Transcription: ${errMsg}`);
           setState("ready");
-          realtimeRef.current = null;
+          hybridRef.current = null;
         }
       );
-      realtimeRef.current = handle;
+      hybridRef.current = handle;
       setState("recording");
     } catch (e: any) {
       setError(`Enregistrement: ${e?.message ?? e}`);
@@ -151,17 +159,17 @@ export default function App() {
   }
 
   async function handleStopRecording() {
-    const handle = realtimeRef.current;
+    const handle = hybridRef.current;
     if (!handle) return;
     try {
       setState("transcribing");
       await handle.stop();
-      realtimeRef.current = null;
+      hybridRef.current = null;
       setState("ready");
     } catch (e: any) {
       setError(`Arret: ${e?.message ?? e}`);
       setState("ready");
-      realtimeRef.current = null;
+      hybridRef.current = null;
     }
   }
 
@@ -180,7 +188,7 @@ export default function App() {
         <Text style={styles.downloadHeader}>
           {downloadingNow ? "Installation du modele vocal" : "Modele vocal requis"}
         </Text>
-        <Text style={styles.downloadSize}>~98 Mo</Text>
+        <Text style={styles.downloadSize}>~350 Mo + 513 Mo (modele de precision)</Text>
 
         <View style={{ height: 24 }} />
 
@@ -235,8 +243,8 @@ export default function App() {
         <View style={styles.topBar}>
           <Text style={styles.appTitle}>Vox</Text>
           <View style={styles.statusRight}>
-            <View style={[styles.dot, { backgroundColor: COLORS.muted }]} />
-            <Text style={styles.statusLabel}>Local</Text>
+            <View style={[styles.dot, { backgroundColor: offlineReady ? COLORS.success : COLORS.muted }]} />
+            <Text style={styles.statusLabel}>{offlineReady ? "HD" : "Chargement..."}</Text>
           </View>
         </View>
 

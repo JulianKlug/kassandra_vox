@@ -25,12 +25,10 @@ import type {
 } from "react-native-sherpa-onnx/stt";
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 
-// French streaming models tried:
-// 1. NeMo Fast Conformer CTC int8 (98MB) - NVidia, 14K hours, streaming via nemo_ctc
-// 2. NeMo Fast Conformer Transducer (435MB) - OFFLINE ONLY, not streaming-compatible
-// 3. Zipformer FR 2023 mobile (351MB) - decent speed, poor medical accuracy
-// 4. Kroko (55MB) - crashed on init (onnxruntime compat issue)
-const FRENCH_MODEL_ID = "sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8";
+// French streaming model for real-time preview.
+// Only the 2023 zipformer works with react-native-sherpa-onnx 0.4.2.
+// Newer models crash on metadata parsing (attention_dims / window_size).
+const FRENCH_MODEL_ID = "sherpa-onnx-streaming-zipformer-fr-2023-04-14-mobile";
 
 export interface SherpaDownloadProgress {
   phase: string;
@@ -102,6 +100,13 @@ export async function initSherpaEngine(modelPath: string): Promise<void> {
 
 export function isSherpaReady(): boolean {
   return engine !== null;
+}
+
+/**
+ * Get the underlying engine for advanced use (e.g., hybrid-engine).
+ */
+export function getSherpaEngine(): StreamingSttEngine | null {
+  return engine;
 }
 
 /**
