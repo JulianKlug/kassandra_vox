@@ -19,21 +19,13 @@ import {
   PermissionsAndroid,
 } from "react-native";
 import {
-  isModelDownloaded,
-  downloadModel,
-  ensureModelsDir,
-  getModelInfo,
-  hasResumableDownload,
-  clearPartialDownload,
-  ModelVariant,
-  DownloadProgress,
-} from "./src/whisper/model";
-import {
-  loadModel,
-  isModelLoaded,
-  startRealtimeTranscription,
-  RealtimeHandle,
-} from "./src/whisper/transcriber";
+  ensureFrenchModel,
+  initSherpaEngine,
+  isSherpaReady,
+  startSherpaRealtime,
+  SherpaRealtimeHandle,
+  SherpaDownloadProgress,
+} from "./src/stt/sherpa-streaming";
 import { applyCorrections } from "./src/pipeline/correct";
 
 // Design tokens (from DESIGN.md)
@@ -59,132 +51,85 @@ type AppState =
   | "recording"
   | "transcribing";
 
-const MODEL_VARIANT: ModelVariant = "medium";
-
 export default function App() {
   const [state, setState] = useState<AppState>("checking");
   const [downloadPercent, setDownloadPercent] = useState(0);
-  const [downloadBytes, setDownloadBytes] = useState(0);
-  const [downloadTotal, setDownloadTotal] = useState(0);
-  const [resumable, setResumable] = useState(false);
+  const [downloadPhase, setDownloadPhase] = useState("");
   const [transcript, setTranscript] = useState("");
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const realtimeRef = useRef<RealtimeHandle | null>(null);
-  const transcriptBaseRef = useRef("");
+  const realtimeRef = useRef<SherpaRealtimeHandle | null>(null);
+  const transcriptSegments = useRef<string[]>([]);
 
-  // Initial: check whether model exists, request mic permission
+  // Initial: download model if needed, init engine, request mic permission
   useEffect(() => {
     (async () => {
       try {
-        await ensureModelsDir();
-        const has = await isModelDownloaded(MODEL_VARIANT);
-        if (!has) {
-          // Check if we have a partial download we can resume
-          const canResume = await hasResumableDownload(MODEL_VARIANT);
-          setResumable(canResume);
-          setState("needsDownload");
-        } else {
-          await loadAndReady();
-        }
         // Request mic permission early on Android
-        await requestMicPermission();
+        if (Platform.OS === "android") {
+          await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            {
+              title: "Microphone",
+              message: "Vox a besoin du microphone pour la dictee.",
+              buttonPositive: "OK",
+            }
+          );
+        }
+        await handleDownloadAndInit();
       } catch (e: any) {
         setError(e?.message ?? String(e));
       }
     })();
   }, []);
 
-  async function requestMicPermission(): Promise<boolean> {
-    if (Platform.OS === "android") {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        {
-          title: "Microphone",
-          message: "Vox a besoin du microphone pour la dictee.",
-          buttonPositive: "OK",
-        }
-      );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    }
-    // iOS permission is handled via Info.plist + the system prompt at first use
-    return true;
-  }
-
-  async function loadAndReady() {
-    setState("loadingModel");
-    try {
-      await loadModel(MODEL_VARIANT);
-      setState("ready");
-    } catch (e: any) {
-      setError(`Model load failed: ${e?.message ?? e}`);
-    }
-  }
-
-  async function handleDownload() {
+  async function handleDownloadAndInit() {
     setState("downloading");
     setError(null);
     try {
-      await downloadModel(MODEL_VARIANT, (p: DownloadProgress) => {
+      // ensureModel downloads + extracts if not already present
+      const modelPath = await ensureFrenchModel((p: SherpaDownloadProgress) => {
         setDownloadPercent(p.percent);
-        setDownloadBytes(p.bytesWritten);
-        setDownloadTotal(p.totalBytes);
+        setDownloadPhase(p.phase);
       });
-      setResumable(false);
-      await loadAndReady();
+      setState("loadingModel");
+      await initSherpaEngine(modelPath);
+      setState("ready");
     } catch (e: any) {
-      // Check if we now have something to resume from
-      const canResume = await hasResumableDownload(MODEL_VARIANT);
-      setResumable(canResume);
-      setError(`Telechargement interrompu: ${e?.message ?? e}`);
+      setError(`Initialisation: ${e?.message ?? e}`);
       setState("needsDownload");
     }
   }
 
-  async function handleStartOver() {
-    try {
-      await clearPartialDownload(MODEL_VARIANT);
-      setResumable(false);
-      setDownloadPercent(0);
-      setDownloadBytes(0);
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
-    }
-  }
-
   async function handleStartRecording() {
-    if (!isModelLoaded()) {
-      setError("Model not loaded");
+    if (!isSherpaReady()) {
+      setError("Modele non charge");
       return;
     }
     try {
-      const granted = await requestMicPermission();
-      if (!granted) {
-        setError("Permission microphone refusee");
-        return;
-      }
+      // Reset current segment tracking
+      transcriptSegments.current = [];
 
-      // Snapshot the existing transcript so streaming updates only replace
-      // the current dictation segment, not the whole history.
-      transcriptBaseRef.current = transcript;
-      setLatencyMs(null);
-
-      const handle = await startRealtimeTranscription(
+      const handle = await startSherpaRealtime(
         (update) => {
-          // Apply medical post-processor to each incremental update so the
-          // user sees corrected text in real time, not raw whisper output.
+          // Apply medical post-processor to each partial result
           const corrected = applyCorrections(update.text);
-          const base = transcriptBaseRef.current;
-          const composed = base
-            ? `${base} ${corrected.text.trim()}`
-            : corrected.text.trim();
-          setTranscript(composed);
-          setLatencyMs(update.processTimeMs);
-
-          if (update.isFinal) {
-            setState("ready");
-            realtimeRef.current = null;
+          if (corrected.text.trim()) {
+            // Update current segment with latest partial
+            const segments = [...transcriptSegments.current];
+            segments[segments.length] = corrected.text.trim();
+            // But the last segment is the "in progress" one
+            // that keeps getting replaced until isEndpoint
+            const allText = segments.join(" ");
+            setTranscript((prev) => {
+              // Keep everything before this recording session, add new text
+              const base = prev.split("").length > 0 ? "" : "";
+              return allText;
+            });
+          }
+          if (update.isEndpoint && update.text.trim()) {
+            // Endpoint reached: finalize this segment, start accumulating next
+            const corrected2 = applyCorrections(update.text);
+            transcriptSegments.current.push(corrected2.text.trim());
           }
         },
         (errMsg) => {
@@ -207,8 +152,8 @@ export default function App() {
     try {
       setState("transcribing");
       await handle.stop();
-      // The final result will arrive via the onUpdate callback with
-      // isFinal=true, which transitions us back to "ready".
+      realtimeRef.current = null;
+      setState("ready");
     } catch (e: any) {
       setError(`Arret: ${e?.message ?? e}`);
       setState("ready");
@@ -219,9 +164,7 @@ export default function App() {
   // ----- Render helpers -----
 
   function renderDownload() {
-    const info = getModelInfo(MODEL_VARIANT);
     const downloadingNow = state === "downloading";
-    const buttonLabel = resumable ? "Reprendre" : "Telecharger";
 
     return (
       <View style={styles.centerContainer}>
@@ -230,20 +173,16 @@ export default function App() {
 
         <View style={{ height: 48 }} />
 
-        <Text style={styles.downloadHeader}>Telechargement du modele vocal</Text>
-        <Text style={styles.downloadSize}>{info.sizeLabel}</Text>
+        <Text style={styles.downloadHeader}>
+          {downloadingNow ? "Installation du modele vocal" : "Modele vocal requis"}
+        </Text>
+        <Text style={styles.downloadSize}>~55 Mo</Text>
 
         <View style={{ height: 24 }} />
 
         <Text style={styles.privacyMessage}>
           Ce modele d'intelligence artificielle reste sur votre appareil.
           Vos dictees ne quitteront jamais votre telephone.
-        </Text>
-
-        <View style={{ height: 16 }} />
-
-        <Text style={styles.privacyHint}>
-          Gardez l'application ouverte pendant le telechargement.
         </Text>
 
         <View style={{ height: 32 }} />
@@ -259,37 +198,19 @@ export default function App() {
               />
             </View>
             <Text style={styles.progressText}>
-              {Math.round(downloadPercent * 100)}% &middot; {formatBytes(downloadBytes)}
-              {downloadTotal > 0 ? ` / ${formatBytes(downloadTotal)}` : ""}
+              {downloadPhase || "Telechargement"} {Math.round(downloadPercent * 100)}%
             </Text>
           </View>
         ) : (
           <View style={{ alignItems: "center" }}>
-            {resumable && (
-              <Text style={styles.resumeNote}>
-                Telechargement partiel detecte. Reprendre la ou il s'est arrete.
-              </Text>
-            )}
-            <TouchableOpacity style={styles.primaryButton} onPress={handleDownload}>
-              <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleDownloadAndInit}>
+              <Text style={styles.primaryButtonText}>Telecharger</Text>
             </TouchableOpacity>
-            {resumable && (
-              <TouchableOpacity onPress={handleStartOver} style={{ marginTop: 16 }}>
-                <Text style={styles.secondaryAction}>Recommencer depuis zero</Text>
-              </TouchableOpacity>
-            )}
             {error && <Text style={styles.inlineError}>{error}</Text>}
           </View>
         )}
       </View>
     );
-  }
-
-  function formatBytes(bytes: number): string {
-    if (bytes < 1024) return `${bytes} o`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} Mo`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} Go`;
   }
 
   function renderLoading(label: string) {
@@ -326,9 +247,9 @@ export default function App() {
               Appuyez sur le bouton pour commencer la dictee.
             </Text>
           )}
-          {latencyMs !== null && (
+          {state === "recording" && (
             <Text style={styles.latency}>
-              Derniere transcription: {(latencyMs / 1000).toFixed(1)}s
+              Ecoute en cours...
             </Text>
           )}
         </ScrollView>

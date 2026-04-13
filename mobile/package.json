@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@fugood/react-native-audio-pcm-stream": "^1.1.4",
+    "@kesha-antonov/react-native-background-downloader": "^4.5.4",
     "expo": "~54.0.33",
     "expo-av": "~16.0.8",
     "expo-dev-client": "~6.0.20",
@@ -22,6 +23,7 @@
     "expo-system-ui": "~6.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-sherpa-onnx": "^0.4.2",
     "whisper.rn": "^0.5.5"
   },
   "devDependencies": {
