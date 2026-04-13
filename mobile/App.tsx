@@ -197,12 +197,12 @@ export default function App() {
               <View
                 style={[
                   styles.progressFill,
-                  { width: `${Math.round(downloadPercent * 100)}%` },
+                  { width: `${Math.min(100, Math.round(downloadPercent))}%` },
                 ]}
               />
             </View>
             <Text style={styles.progressText}>
-              {downloadPhase || "Telechargement"} {Math.round(downloadPercent * 100)}%
+              {downloadPhase || "Telechargement"} {Math.min(100, Math.round(downloadPercent))}%
             </Text>
           </View>
         ) : (
