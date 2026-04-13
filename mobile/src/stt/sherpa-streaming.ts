@@ -25,8 +25,10 @@ import type {
 } from "react-native-sherpa-onnx/stt";
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 
-// The French Kroko model: ~55MB, streaming transducer, 2025 vintage.
-const FRENCH_MODEL_ID = "sherpa-onnx-streaming-zipformer-fr-kroko-2025-08-06";
+// French streaming models, ordered by preference:
+// 1. Mobile variant of the 2023 French zipformer (351MB, battle-tested)
+// 2. Kroko model (55MB, newer but crashed on init - possibly onnxruntime compat issue)
+const FRENCH_MODEL_ID = "sherpa-onnx-streaming-zipformer-fr-2023-04-14-mobile";
 
 export interface SherpaDownloadProgress {
   phase: string;
@@ -70,18 +72,30 @@ export async function ensureFrenchModel(
 export async function initSherpaEngine(modelPath: string): Promise<void> {
   if (engine) {
     await engine.destroy();
+    engine = null;
   }
-  engine = await createStreamingSTT({
-    modelPath: fileModelPath(modelPath),
-    modelType: "transducer",
-    numThreads: 4,
-    enableEndpoint: true,
-    endpointConfig: {
-      rule1: { mustContainNonSilence: false, minTrailingSilence: 2.4, minUtteranceLength: 0 },
-      rule2: { mustContainNonSilence: true, minTrailingSilence: 1.2, minUtteranceLength: 0 },
-      rule3: { mustContainNonSilence: false, minTrailingSilence: 0, minUtteranceLength: 20 },
-    },
-  });
+
+  console.log(`[vox] initSherpaEngine: modelPath=${modelPath}`);
+
+  try {
+    engine = await createStreamingSTT({
+      modelPath: fileModelPath(modelPath),
+      modelType: "auto",  // let the SDK detect model layout
+      numThreads: 4,
+      enableEndpoint: true,
+      debug: true,
+      endpointConfig: {
+        rule1: { mustContainNonSilence: false, minTrailingSilence: 2.4, minUtteranceLength: 0 },
+        rule2: { mustContainNonSilence: true, minTrailingSilence: 1.2, minUtteranceLength: 0 },
+        rule3: { mustContainNonSilence: false, minTrailingSilence: 0, minUtteranceLength: 20 },
+      },
+    });
+    console.log("[vox] Sherpa engine initialized successfully");
+  } catch (e: any) {
+    console.error(`[vox] Sherpa engine init failed: ${e?.message ?? e}`);
+    engine = null;
+    throw e;
+  }
 }
 
 export function isSherpaReady(): boolean {

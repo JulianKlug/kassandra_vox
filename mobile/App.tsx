@@ -176,7 +176,7 @@ export default function App() {
         <Text style={styles.downloadHeader}>
           {downloadingNow ? "Installation du modele vocal" : "Modele vocal requis"}
         </Text>
-        <Text style={styles.downloadSize}>~55 Mo</Text>
+        <Text style={styles.downloadSize}>~350 Mo</Text>
 
         <View style={{ height: 24 }} />
 
