@@ -10,8 +10,8 @@
  *   - Minimum 5s between passes
  *   - Minimum 3s of accumulated audio
  *   - Maximum 30s without a pass
- *   - Always on stop
- *   - One pass at a time, skip if busy
+ *   - Always on stop (waits for any in-progress pass first)
+ *   - One pass at a time, queues next segment if busy
  */
 
 import * as FileSystem from "expo-file-system/legacy";
@@ -56,12 +56,15 @@ export async function startHybridTranscription(
   let currentSegment: Segment = {
     index: 0, streamingText: "", offlineText: null, audioSamples: [],
   };
-  let offlineRunning = false;
   let lastPassTime = 0;
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  // Build full transcript from all segments
+  // Offline pass serialization: only one whisper transcription at a time.
+  // offlinePromise tracks the currently running pass so we can await it.
+  let offlinePromise: Promise<void> | null = null;
+  let pendingSegment: Segment | null = null;
+
   function buildTranscript(): string {
     const parts: string[] = [];
     for (const seg of finishedSegments) {
@@ -75,17 +78,15 @@ export async function startHybridTranscription(
 
   function emit(source: "streaming" | "offline") {
     if (stopped) return;
-    onUpdate({ text: buildTranscript(), source, offlineRunning });
+    onUpdate({ text: buildTranscript(), source, offlineRunning: offlinePromise !== null });
   }
 
-  // Write PCM samples to WAV file
   async function writeWav(path: string, samples: number[]): Promise<void> {
     const numSamples = samples.length;
     const dataSize = numSamples * 2;
     const buf = new ArrayBuffer(44 + dataSize);
     const view = new DataView(buf);
 
-    // Header
     const enc = (s: string, off: number) => {
       for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
     };
@@ -103,7 +104,6 @@ export async function startHybridTranscription(
     enc("data", 36);
     view.setUint32(40, dataSize, true);
 
-    // PCM data (float -> int16)
     let offset = 44;
     for (let i = 0; i < numSamples; i++) {
       const s = Math.max(-1, Math.min(1, samples[i]));
@@ -111,7 +111,6 @@ export async function startHybridTranscription(
       offset += 2;
     }
 
-    // Write via base64 (expo-file-system limitation)
     const bytes = new Uint8Array(buf);
     let binary = "";
     const chunkSize = 8192;
@@ -126,13 +125,11 @@ export async function startHybridTranscription(
     });
   }
 
-  // Run offline pass on a segment
-  async function runOfflinePass(seg: Segment): Promise<void> {
+  // The actual offline transcription work. Caller must ensure
+  // no other pass is running (via offlinePromise guard).
+  async function doOfflinePass(seg: Segment): Promise<void> {
     if (!isWhisperReady()) return;
     if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
-
-    offlineRunning = true;
-    emit("streaming");
 
     try {
       const wavPath = `${FileSystem.cacheDirectory}vox-offline-${seg.index}.wav`;
@@ -143,16 +140,42 @@ export async function startHybridTranscription(
       try { await FileSystem.deleteAsync(wavPath, { idempotent: true }); } catch {}
       console.log(`[vox] Offline #${seg.index}: "${seg.offlineText?.slice(0, 80)}"`);
     } catch (e: any) {
-      console.warn(`[vox] Offline pass failed: ${e?.message ?? e}`);
+      console.warn(`[vox] Offline pass error: ${e?.message ?? e}`);
     } finally {
-      offlineRunning = false;
       lastPassTime = Date.now();
-      emit("offline");
     }
   }
 
+  // Schedule an offline pass on a segment, respecting the one-at-a-time rule.
+  function scheduleOfflinePass(seg: Segment) {
+    if (!isWhisperReady()) return;
+    if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
+
+    if (offlinePromise) {
+      // Busy. Queue this segment (replace any previously queued).
+      pendingSegment = seg;
+      return;
+    }
+
+    // Start the pass
+    offlinePromise = doOfflinePass(seg)
+      .then(() => {
+        emit("offline");
+      })
+      .finally(() => {
+        offlinePromise = null;
+
+        // Process queued segment if any
+        if (pendingSegment) {
+          const next = pendingSegment;
+          pendingSegment = null;
+          scheduleOfflinePass(next);
+        }
+      });
+  }
+
   function tryOfflinePass() {
-    if (offlineRunning || stopped) return;
+    if (stopped) return;
     if (Date.now() - lastPassTime < MIN_PASS_INTERVAL_MS) return;
     if (currentSegment.audioSamples.length < MIN_AUDIO_SAMPLES) return;
 
@@ -166,7 +189,7 @@ export async function startHybridTranscription(
       audioSamples: [],
     };
 
-    runOfflinePass(toProcess); // fire and forget
+    scheduleOfflinePass(toProcess);
     resetMaxTimer();
   }
 
@@ -185,7 +208,7 @@ export async function startHybridTranscription(
   const unsubData = pcm.onData(async (samples: Float32Array, sampleRate: number) => {
     if (stopped) return;
 
-    // 1. Feed to audio buffer for offline pass
+    // 1. Buffer audio for offline pass
     for (let i = 0; i < samples.length; i++) {
       currentSegment.audioSamples.push(samples[i]);
     }
@@ -224,16 +247,30 @@ export async function startHybridTranscription(
       await pcm.stop();
       unsubData();
 
+      // Wait for any in-progress offline pass to finish
+      if (offlinePromise) {
+        console.log("[vox] Waiting for in-progress offline pass...");
+        await offlinePromise;
+      }
+
       // Final offline pass on remaining audio
       if (currentSegment.audioSamples.length >= MIN_AUDIO_SAMPLES && isWhisperReady()) {
         finishedSegments.push(currentSegment);
-        await runOfflinePass(currentSegment);
+        await doOfflinePass(currentSegment);
       } else if (currentSegment.streamingText.trim()) {
-        // Not enough audio for offline, keep streaming text
         finishedSegments.push(currentSegment);
       }
 
+      // Process any pending segment that was queued
+      if (pendingSegment) {
+        await doOfflinePass(pendingSegment);
+        pendingSegment = null;
+      }
+
+      // Emit final transcript
+      stopped = false; // temporarily allow emit
       emit("offline");
+      stopped = true;
 
       try { await sttStream.release(); } catch {}
     },
