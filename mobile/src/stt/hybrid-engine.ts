@@ -14,7 +14,6 @@
  *   - One pass at a time, queues next segment if busy
  */
 
-import * as FileSystem from "expo-file-system/legacy";
 import { createPcmLiveStream } from "react-native-sherpa-onnx/audio";
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 import type { SttStream } from "react-native-sherpa-onnx/stt";
@@ -81,63 +80,20 @@ export async function startHybridTranscription(
     onUpdate({ text: buildTranscript(), source, offlineRunning: offlinePromise !== null });
   }
 
-  async function writeWav(path: string, samples: number[]): Promise<void> {
-    const numSamples = samples.length;
-    const dataSize = numSamples * 2;
-    const buf = new ArrayBuffer(44 + dataSize);
-    const view = new DataView(buf);
-
-    const enc = (s: string, off: number) => {
-      for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
-    };
-    enc("RIFF", 0);
-    view.setUint32(4, 36 + dataSize, true);
-    enc("WAVE", 8);
-    enc("fmt ", 12);
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, SAMPLE_RATE, true);
-    view.setUint32(28, SAMPLE_RATE * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    enc("data", 36);
-    view.setUint32(40, dataSize, true);
-
-    let offset = 44;
-    for (let i = 0; i < numSamples; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(offset, s < 0 ? s * 32768 : s * 32767, true);
-      offset += 2;
-    }
-
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-      for (let j = 0; j < chunk.length; j++) {
-        binary += String.fromCharCode(chunk[j]);
-      }
-    }
-    await FileSystem.writeAsStringAsync(path, btoa(binary), {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-  }
-
   // The actual offline transcription work. Caller must ensure
   // no other pass is running (via offlinePromise guard).
   async function doOfflinePass(seg: Segment): Promise<void> {
     if (!isWhisperReady()) return;
     if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
 
+    const durationS = (seg.audioSamples.length / SAMPLE_RATE).toFixed(1);
+    console.log(`[vox] Offline pass #${seg.index}: ${durationS}s of audio`);
+
     try {
-      const wavPath = `${FileSystem.cacheDirectory}vox-offline-${seg.index}.wav`;
-      await writeWav(wavPath, seg.audioSamples);
-      const rawText = await transcribeOffline(wavPath);
+      // Pass float32 PCM samples directly to sherpa-onnx (no WAV file needed)
+      const rawText = await transcribeOffline(seg.audioSamples, SAMPLE_RATE);
       const corrected = applyCorrections(rawText.toLowerCase().trim());
       seg.offlineText = corrected.text.trim();
-      try { await FileSystem.deleteAsync(wavPath, { idempotent: true }); } catch {}
       console.log(`[vox] Offline #${seg.index}: "${seg.offlineText?.slice(0, 80)}"`);
     } catch (e: any) {
       console.warn(`[vox] Offline pass error: ${e?.message ?? e}`);
