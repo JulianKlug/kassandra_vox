@@ -19,6 +19,7 @@ import {
   PermissionsAndroid,
   Linking,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
 import { runTestHarness, TestHarnessResults } from "./src/test-harness/run-tests";
 import {
   ensureFrenchModel,
@@ -72,13 +73,24 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const hybridRef = useRef<HybridHandle | null>(null);
 
-  // Check if launched in test mode via deep link
+  // Check if launched in test mode via deep link OR flag file on device
   useEffect(() => {
-    Linking.getInitialURL().then((url) => {
+    (async () => {
+      // Check deep link
+      const url = await Linking.getInitialURL();
       if (url && url.includes("mode=test")) {
         setTestMode(true);
+        return;
       }
-    });
+      // Check flag file (created by: adb shell touch /data/local/tmp/vox-test-mode)
+      try {
+        const flagInfo = await FileSystem.getInfoAsync("file:///data/local/tmp/vox-test-mode");
+        if (flagInfo.exists) {
+          console.log("[vox] Test mode flag detected");
+          setTestMode(true);
+        }
+      } catch {}
+    })();
   }, []);
 
   // Run test harness if in test mode
@@ -94,42 +106,10 @@ export default function App() {
     })();
   }, [testMode]);
 
-  // Test mode UI
-  if (testMode) {
-    return (
-      <View style={[styles.root, { padding: 20 }]}>
-        <StatusBar barStyle="dark-content" />
-        <Text style={styles.brandTitle}>Vox Test Harness</Text>
-        {testResults ? (
-          <ScrollView style={{ flex: 1, marginTop: 16 }}>
-            <Text style={{ fontSize: 14, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: COLORS.text }}>
-              Integration: {testResults.summary.integrationPassed}/{testResults.summary.integrationTotal} passed{"\n"}
-              {testResults.integration.map(r =>
-                `${r.pass ? "✓" : "✗"} ${r.name} (${r.durationMs}ms)${r.pass ? "" : "\n  " + r.message}`
-              ).join("\n")}
-              {testResults.benchmark ? (
-                `\n\nBenchmark:\n` +
-                `Files: ${testResults.benchmark.aggregate.successfulFiles}/${testResults.benchmark.aggregate.totalFiles}\n` +
-                `Avg inference: ${testResults.benchmark.aggregate.avgInferenceMs.toFixed(0)}ms\n` +
-                `WER (raw): ${(testResults.benchmark.aggregate.offlineRawWer * 100).toFixed(1)}%\n` +
-                `WER (corrected): ${(testResults.benchmark.aggregate.offlineCorrectedWer * 100).toFixed(1)}%\n` +
-                `Prose WER (raw): ${(testResults.benchmark.aggregate.proseOnlyRawWer * 100).toFixed(1)}%\n` +
-                `Prose WER (corrected): ${(testResults.benchmark.aggregate.proseOnlyCorrectedWer * 100).toFixed(1)}%`
-              ) : "\n\nBenchmark: skipped"}
-            </Text>
-          </ScrollView>
-        ) : (
-          <Text style={{ fontSize: 16, color: COLORS.muted, marginTop: 20 }}>
-            Running tests...
-          </Text>
-        )}
-      </View>
-    );
-  }
-
-  // Normal app flow
+  // Normal app flow (skipped in test mode)
   // Initial: download model if needed, init engine, request mic permission
   useEffect(() => {
+    if (testMode) return; // Skip normal init in test mode
     (async () => {
       try {
         // Request mic permission early on Android
@@ -348,6 +328,39 @@ export default function App() {
   }
 
   // ----- Main render -----
+
+  // Test mode UI (placed after all hooks to avoid "fewer hooks" error)
+  if (testMode) {
+    return (
+      <View style={[styles.root, { padding: 20 }]}>
+        <StatusBar barStyle="dark-content" />
+        <Text style={styles.brandTitle}>Vox Test Harness</Text>
+        {testResults ? (
+          <ScrollView style={{ flex: 1, marginTop: 16 }}>
+            <Text style={{ fontSize: 14, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: COLORS.text }}>
+              Integration: {testResults.summary.integrationPassed}/{testResults.summary.integrationTotal} passed{"\n"}
+              {testResults.integration.map(r =>
+                `${r.pass ? "✓" : "✗"} ${r.name} (${r.durationMs}ms)${r.pass ? "" : "\n  " + r.message}`
+              ).join("\n")}
+              {testResults.benchmark ? (
+                `\n\nBenchmark:\n` +
+                `Files: ${testResults.benchmark.aggregate.successfulFiles}/${testResults.benchmark.aggregate.totalFiles}\n` +
+                `Avg inference: ${testResults.benchmark.aggregate.avgInferenceMs.toFixed(0)}ms\n` +
+                `WER (raw): ${(testResults.benchmark.aggregate.offlineRawWer * 100).toFixed(1)}%\n` +
+                `WER (corrected): ${(testResults.benchmark.aggregate.offlineCorrectedWer * 100).toFixed(1)}%\n` +
+                `Prose WER (raw): ${(testResults.benchmark.aggregate.proseOnlyRawWer * 100).toFixed(1)}%\n` +
+                `Prose WER (corrected): ${(testResults.benchmark.aggregate.proseOnlyCorrectedWer * 100).toFixed(1)}%`
+              ) : "\n\nBenchmark: skipped"}
+            </Text>
+          </ScrollView>
+        ) : (
+          <Text style={{ fontSize: 16, color: COLORS.muted, marginTop: 20 }}>
+            Running tests...
+          </Text>
+        )}
+      </View>
+    );
+  }
 
   let content: React.ReactNode;
   // For download errors we keep the user on the download screen so they

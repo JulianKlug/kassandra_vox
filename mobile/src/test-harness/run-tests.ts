@@ -9,6 +9,7 @@
 
 import { runIntegrationTests, TestResult } from "./test-cases";
 import { runBenchmark, BenchmarkReport } from "./benchmark";
+import { setupTestData } from "./test-data";
 
 export interface TestHarnessResults {
   integration: TestResult[];
@@ -28,6 +29,15 @@ export async function runTestHarness(): Promise<TestHarnessResults> {
   console.log("[VoxTest] ====================================");
   console.log("[VoxTest] VOX TEST HARNESS");
   console.log("[VoxTest] ====================================");
+
+  // Phase 0: Setup test data
+  console.log("[VoxTest] Setting up test data...");
+  try {
+    await setupTestData();
+    console.log("[VoxTest] Test data ready.");
+  } catch (e: any) {
+    console.warn(`[VoxTest] Test data setup failed: ${e?.message ?? e}`);
+  }
 
   // Phase 1: Integration tests
   console.log("[VoxTest]");

@@ -6,11 +6,57 @@
  *   adb push spike/data/ground_truth/ /data/local/tmp/vox-test/ground-truth/
  */
 
-// Base path on device where test data is pushed via adb
-const TEST_DATA_BASE = "/data/local/tmp/vox-test";
+import * as FileSystem from "expo-file-system/legacy";
+
+// Test data lives in the app's document directory (app-accessible)
+// Files are pushed via: adb push ... /sdcard/ then copied by setupTestData()
+const TEST_DATA_BASE = `${FileSystem.documentDirectory}vox-test`;
 
 export const TEST_AUDIO_DIR = `${TEST_DATA_BASE}/audio`;
 export const TEST_GROUND_TRUTH_DIR = `${TEST_DATA_BASE}/ground-truth`;
+
+// Source location where adb pushes files (world-readable)
+const ADB_STAGING = "/data/local/tmp/vox-test";
+
+/**
+ * Copy test data from adb staging area to app document directory.
+ * Call this before running tests. Safe to call multiple times.
+ */
+export async function setupTestData(): Promise<void> {
+  // Create dirs
+  for (const dir of [TEST_AUDIO_DIR, TEST_GROUND_TRUTH_DIR]) {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    }
+  }
+
+  // Copy audio files from staging
+  for (const rec of TEST_RECORDINGS) {
+    const destAudio = rec.audioFile;
+    const srcAudio = `${ADB_STAGING}/audio/${rec.id}.wav`;
+    const destInfo = await FileSystem.getInfoAsync(destAudio);
+    if (!destInfo.exists) {
+      try {
+        await FileSystem.copyAsync({ from: `file://${srcAudio}`, to: destAudio });
+      } catch {
+        // Staging file may not exist, that's OK (test will report it missing)
+      }
+    }
+  }
+
+  // Copy ground truth files from staging
+  for (const rec of TEST_RECORDINGS) {
+    const destGt = rec.groundTruthFile;
+    const srcGt = `${ADB_STAGING}/ground-truth/${rec.id}.json`;
+    const destInfo = await FileSystem.getInfoAsync(destGt);
+    if (!destInfo.exists) {
+      try {
+        await FileSystem.copyAsync({ from: `file://${srcGt}`, to: destGt });
+      } catch {}
+    }
+  }
+}
 
 /** Test recording metadata */
 export interface TestRecording {
