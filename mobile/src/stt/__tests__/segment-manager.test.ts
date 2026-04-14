@@ -301,6 +301,23 @@ describe("uint8ToBase64", () => {
   });
 });
 
+// ── file:// URI stripping (tested via logic, not the actual function) ──
+
+describe("file URI handling", () => {
+  test("file:// prefix should be stripped for native code", () => {
+    const uri = "file:///data/user/0/com.vox.dictation/cache/test.wav";
+    const plain = uri.replace(/^file:\/\//, "");
+    expect(plain).toBe("/data/user/0/com.vox.dictation/cache/test.wav");
+    expect(plain).not.toContain("file://");
+  });
+
+  test("plain path without file:// is unchanged", () => {
+    const path = "/data/user/0/com.vox.dictation/cache/test.wav";
+    const result = path.replace(/^file:\/\//, "");
+    expect(result).toBe(path);
+  });
+});
+
 // ── Integration: buildTranscript with offlineText="" ────
 
 describe("buildTranscript empty offline bug", () => {

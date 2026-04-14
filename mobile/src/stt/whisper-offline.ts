@@ -95,12 +95,15 @@ export async function transcribeOffline(samples: number[], sampleRate: number = 
 }
 
 /**
- * Transcribe a WAV file with whisper via sherpa-onnx (onnxruntime).
+ * Transcribe a WAV file via sherpa-onnx (onnxruntime).
+ * Strips file:// URI prefix since sherpa-onnx expects plain filesystem paths.
  */
 export async function transcribeFileOffline(wavPath: string): Promise<string> {
-  if (!sttEngine) throw new Error("Whisper offline not initialized");
+  if (!sttEngine) throw new Error("Offline engine not initialized");
 
-  const result = await sttEngine.transcribeFile(wavPath);
+  // expo-file-system uses file:// URIs, sherpa-onnx expects plain paths
+  const plainPath = wavPath.replace(/^file:\/\//, "");
+  const result = await sttEngine.transcribeFile(plainPath);
   return result.text;
 }
 
