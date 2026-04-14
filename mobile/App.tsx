@@ -95,10 +95,10 @@ export default function App() {
     setError(null);
     try {
       // 1. Download + init the streaming zipformer (351MB, for real-time)
-      setDownloadPhase("Mod\u00e8le streaming");
+      setDownloadPhase("Modèle streaming");
       const modelPath = await ensureFrenchModel((p: SherpaDownloadProgress) => {
         setDownloadPercent(p.percent * 0.5); // first half of progress
-        setDownloadPhase("Mod\u00e8le streaming");
+        setDownloadPhase("Modèle streaming");
       });
 
       setState("loadingModel");
@@ -136,7 +136,7 @@ export default function App() {
 
   async function handleStartRecording() {
     if (!isSherpaReady()) {
-      setError("Mod\u00e8le non charg\u00e9");
+      setError("Modèle non chargé");
       return;
     }
     try {
@@ -181,20 +181,20 @@ export default function App() {
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.brandTitle}>Vox</Text>
-        <Text style={styles.brandSubtitle}>Dict\u00e9e m\u00e9dicale priv\u00e9e</Text>
+        <Text style={styles.brandSubtitle}>Dictée médicale privée</Text>
 
         <View style={{ height: 48 }} />
 
         <Text style={styles.downloadHeader}>
-          {downloadingNow ? "Installation du mod\u00e8le vocal" : "Mod\u00e8le vocal requis"}
+          {downloadingNow ? "Installation du modèle vocal" : "Modèle vocal requis"}
         </Text>
-        <Text style={styles.downloadSize}>~350 Mo + 513 Mo (mod\u00e8le de pr\u00e9cision)</Text>
+        <Text style={styles.downloadSize}>~350 Mo + 513 Mo (modèle de précision)</Text>
 
         <View style={{ height: 24 }} />
 
         <Text style={styles.privacyMessage}>
-          Ce mod\u00e8le d'intelligence artificielle reste sur votre appareil.
-          Vos dict\u00e9es ne quitteront jamais votre t\u00e9l\u00e9phone.
+          Ce modèle d'intelligence artificielle reste sur votre appareil.
+          Vos dictées ne quitteront jamais votre téléphone.
         </Text>
 
         <View style={{ height: 32 }} />
@@ -210,13 +210,13 @@ export default function App() {
               />
             </View>
             <Text style={styles.progressText}>
-              {downloadPhase || "T\u00e9l\u00e9chargement"} {Math.min(100, Math.round(downloadPercent))}%
+              {downloadPhase || "Téléchargement"} {Math.min(100, Math.round(downloadPercent))}%
             </Text>
           </View>
         ) : (
           <View style={{ alignItems: "center" }}>
             <TouchableOpacity style={styles.primaryButton} onPress={handleDownloadAndInit}>
-              <Text style={styles.primaryButtonText}>T\u00e9l\u00e9charger</Text>
+              <Text style={styles.primaryButtonText}>Télécharger</Text>
             </TouchableOpacity>
             {error && <Text style={styles.inlineError}>{error}</Text>}
           </View>
@@ -256,12 +256,12 @@ export default function App() {
             <Text style={styles.transcriptText}>{transcript}</Text>
           ) : (
             <Text style={styles.placeholder}>
-              Appuyez sur le bouton pour commencer la dict\u00e9e.
+              Appuyez sur le bouton pour commencer la dictée.
             </Text>
           )}
           {state === "recording" && (
             <Text style={styles.latency}>
-              \u00c9coute en cours...
+              Écoute en cours...
             </Text>
           )}
         </ScrollView>
@@ -287,7 +287,7 @@ export default function App() {
             {isBusy
               ? "Transcription..."
               : isRecording
-              ? "Toucher pour arr\u00eater"
+              ? "Toucher pour arrêter"
               : "Toucher pour dicter"}
           </Text>
         </View>
@@ -314,7 +314,7 @@ export default function App() {
             setState("checking");
           }}
         >
-          <Text style={styles.primaryButtonText}>R\u00e9essayer</Text>
+          <Text style={styles.primaryButtonText}>Réessayer</Text>
         </TouchableOpacity>
       </View>
     );
