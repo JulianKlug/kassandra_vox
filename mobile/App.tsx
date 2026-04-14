@@ -17,7 +17,9 @@ import {
   StatusBar,
   Platform,
   PermissionsAndroid,
+  Linking,
 } from "react-native";
+import { runTestHarness, TestHarnessResults } from "./src/test-harness/run-tests";
 import {
   ensureFrenchModel,
   initSherpaEngine,
@@ -60,6 +62,8 @@ type AppState =
   | "transcribing";
 
 export default function App() {
+  const [testMode, setTestMode] = useState(false);
+  const [testResults, setTestResults] = useState<TestHarnessResults | null>(null);
   const [state, setState] = useState<AppState>("checking");
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [downloadPhase, setDownloadPhase] = useState("");
@@ -68,6 +72,62 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const hybridRef = useRef<HybridHandle | null>(null);
 
+  // Check if launched in test mode via deep link
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => {
+      if (url && url.includes("mode=test")) {
+        setTestMode(true);
+      }
+    });
+  }, []);
+
+  // Run test harness if in test mode
+  useEffect(() => {
+    if (!testMode) return;
+    (async () => {
+      try {
+        const results = await runTestHarness();
+        setTestResults(results);
+      } catch (e: any) {
+        console.error(`[VoxTest] Harness failed: ${e?.message ?? e}`);
+      }
+    })();
+  }, [testMode]);
+
+  // Test mode UI
+  if (testMode) {
+    return (
+      <View style={[styles.root, { padding: 20 }]}>
+        <StatusBar barStyle="dark-content" />
+        <Text style={styles.brandTitle}>Vox Test Harness</Text>
+        {testResults ? (
+          <ScrollView style={{ flex: 1, marginTop: 16 }}>
+            <Text style={{ fontSize: 14, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: COLORS.text }}>
+              Integration: {testResults.summary.integrationPassed}/{testResults.summary.integrationTotal} passed{"\n"}
+              {testResults.integration.map(r =>
+                `${r.pass ? "✓" : "✗"} ${r.name} (${r.durationMs}ms)${r.pass ? "" : "\n  " + r.message}`
+              ).join("\n")}
+              {testResults.benchmark ? (
+                `\n\nBenchmark:\n` +
+                `Files: ${testResults.benchmark.aggregate.successfulFiles}/${testResults.benchmark.aggregate.totalFiles}\n` +
+                `Avg inference: ${testResults.benchmark.aggregate.avgInferenceMs.toFixed(0)}ms\n` +
+                `WER (raw): ${(testResults.benchmark.aggregate.offlineRawWer * 100).toFixed(1)}%\n` +
+                `WER (corrected): ${(testResults.benchmark.aggregate.offlineCorrectedWer * 100).toFixed(1)}%\n` +
+                `Prose WER (raw): ${(testResults.benchmark.aggregate.proseOnlyRawWer * 100).toFixed(1)}%\n` +
+                `Prose WER (corrected): ${(testResults.benchmark.aggregate.proseOnlyCorrectedWer * 100).toFixed(1)}%`
+              ) : "\n\nBenchmark: skipped"}
+            </Text>
+          </ScrollView>
+        ) : (
+          <Text style={{ fontSize: 16, color: COLORS.muted, marginTop: 20 }}>
+            Running tests...
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  // Normal app flow
   // Initial: download model if needed, init engine, request mic permission
   useEffect(() => {
     (async () => {
