@@ -25,9 +25,9 @@ import {
   SherpaDownloadProgress,
 } from "./src/stt/sherpa-streaming";
 import {
-  downloadWhisperModel,
-  isWhisperModelDownloaded,
-  initWhisperOffline,
+  downloadOfflineModel,
+  isWhisperReady,
+  initOfflineEngine,
 } from "./src/stt/whisper-offline";
 import {
   startHybridTranscription,
@@ -107,30 +107,22 @@ export default function App() {
       // 2. Download the whisper distil-fr model (513MB, for offline accuracy)
       // Do this in the background so the user can start dictating immediately
       setState("ready");
-      downloadWhisperInBackground();
+      downloadOfflineInBackground();
     } catch (e: any) {
       setError(`Initialisation: ${e?.message ?? e}`);
       setState("needsDownload");
     }
   }
 
-  async function downloadWhisperInBackground() {
+  async function downloadOfflineInBackground() {
     try {
-      const hasModel = await isWhisperModelDownloaded();
-      if (!hasModel) {
-        console.log("[vox] Downloading whisper distil-fr in background...");
-        await downloadWhisperModel((p) => {
-          // Don't show progress to user, it's background
-          console.log(`[vox] Whisper download: ${Math.round(p.percent)}%`);
-        });
-      }
-      console.log("[vox] Loading whisper distil-fr...");
-      await initWhisperOffline();
+      console.log("[vox] Downloading Canary-180M-Flash in background...");
+      await initOfflineEngine();
       setOfflineReady(true);
-      console.log("[vox] Whisper offline engine ready");
+      console.log("[vox] Canary-180M-Flash offline engine ready");
     } catch (e: any) {
       // Non-fatal: streaming still works without offline pass
-      console.warn(`[vox] Whisper offline init failed (non-fatal): ${e?.message ?? e}`);
+      console.warn(`[vox] Offline engine init failed (non-fatal): ${e?.message ?? e}`);
     }
   }
 
@@ -188,7 +180,7 @@ export default function App() {
         <Text style={styles.downloadHeader}>
           {downloadingNow ? "Installation du modèle vocal" : "Modèle vocal requis"}
         </Text>
-        <Text style={styles.downloadSize}>~350 Mo + 513 Mo (modèle de précision)</Text>
+        <Text style={styles.downloadSize}>~350 Mo + 147 Mo (modèle de précision)</Text>
 
         <View style={{ height: 24 }} />
 
