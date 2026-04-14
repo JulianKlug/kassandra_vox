@@ -18,7 +18,7 @@ import { createPcmLiveStream } from "react-native-sherpa-onnx/audio";
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 import type { SttStream } from "react-native-sherpa-onnx/stt";
 import { getSherpaEngine } from "./sherpa-streaming";
-import { transcribeFileOffline, isWhisperReady } from "./whisper-offline";
+import { transcribeFileOffline, isWhisperReady, resetOfflineEngine } from "./whisper-offline";
 import { applyCorrections } from "../pipeline/correct";
 import {
   createSegment,
@@ -94,12 +94,19 @@ export async function startHybridTranscription(
 
     let wavPath: string | null = null;
     try {
-      // Write to temp WAV file to avoid bridge serialization of 100K+ floats
       wavPath = await writeSegmentToWav(seg);
       console.log(`[vox] WAV written: ${wavPath}`);
 
-      const rawText = await transcribeFileOffline(wavPath);
+      let rawText = await transcribeFileOffline(wavPath);
       console.log(`[vox] Offline raw #${seg.index}: "${rawText.slice(0, 80)}"`);
+
+      // If empty, the engine may be in a bad state. Reset and retry once.
+      if (!rawText.trim()) {
+        console.log(`[vox] Empty result, resetting engine and retrying...`);
+        await resetOfflineEngine();
+        rawText = await transcribeFileOffline(wavPath);
+        console.log(`[vox] Retry raw #${seg.index}: "${rawText.slice(0, 80)}"`);
+      }
 
       const corrected = applyCorrections(rawText.toLowerCase().trim());
       const result = corrected.text.trim();
@@ -108,13 +115,12 @@ export async function startHybridTranscription(
         seg.offlineText = result;
         console.log(`[vox] Offline #${seg.index}: "${result.slice(0, 80)}"`);
       } else {
-        console.log(`[vox] Offline #${seg.index}: empty result, keeping streaming text`);
+        console.log(`[vox] Offline #${seg.index}: empty after retry, keeping streaming text`);
       }
     } catch (e: any) {
       console.warn(`[vox] Offline pass error: ${e?.message ?? e}`);
     } finally {
       lastPassTime = Date.now();
-      // Clean up temp file
       if (wavPath) {
         try { await FileSystem.deleteAsync(wavPath, { idempotent: true }); } catch {}
       }

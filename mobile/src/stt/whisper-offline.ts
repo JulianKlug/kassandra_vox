@@ -35,12 +35,8 @@ export interface WhisperDownloadProgress {
 }
 
 let sttEngine: SttEngine | null = null;
-
-export async function isWhisperModelDownloaded(): Promise<boolean> {
-  // The download manager tracks this internally
-  // We just check if the engine is initialized
-  return sttEngine !== null;
-}
+let initPromise: Promise<void> | null = null;
+let modelPath: string | null = null;
 
 export async function downloadOfflineModel(
   onProgress?: (p: WhisperDownloadProgress) => void
@@ -58,9 +54,20 @@ export async function downloadOfflineModel(
 }
 
 export async function initOfflineEngine(): Promise<void> {
+  // Prevent concurrent initialization (race condition fix)
+  if (initPromise) return initPromise;
   if (sttEngine) return;
 
-  const modelPath = await downloadOfflineModel((p) => {
+  initPromise = doInit();
+  try {
+    await initPromise;
+  } finally {
+    initPromise = null;
+  }
+}
+
+async function doInit(): Promise<void> {
+  modelPath = await downloadOfflineModel((p) => {
     console.log(`[vox] Offline model download: ${Math.round(p.percent)}%`);
   });
 
@@ -81,6 +88,17 @@ export async function initOfflineEngine(): Promise<void> {
 
 export function isWhisperReady(): boolean {
   return sttEngine !== null;
+}
+
+/**
+ * Recreate the engine. Call this if the engine starts returning empty results.
+ */
+export async function resetOfflineEngine(): Promise<void> {
+  if (sttEngine) {
+    try { await sttEngine.destroy(); } catch {}
+    sttEngine = null;
+  }
+  await doInit();
 }
 
 /**
