@@ -20,7 +20,10 @@ import { createSTT } from "react-native-sherpa-onnx/stt";
 import { fileModelPath } from "react-native-sherpa-onnx";
 import type { SttEngine } from "react-native-sherpa-onnx/stt";
 
-const WHISPER_MODEL_ID = "sherpa-onnx-whisper-distil-large-v3.5";
+// Models tried:
+// - distil-large-v3.5 (504MB): translates to English despite language:"fr" (likely English-only model)
+// - whisper-turbo (538MB): whisper-large-v3-turbo, guaranteed multilingual
+const WHISPER_MODEL_ID = "sherpa-onnx-whisper-turbo";
 
 export interface WhisperDownloadProgress {
   percent: number;
