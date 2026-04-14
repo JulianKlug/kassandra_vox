@@ -1,30 +1,38 @@
 /**
- * Hybrid STT engine: zipformer streaming + whisper offline second-pass.
+ * Hybrid STT engine: zipformer streaming + Canary offline second-pass.
  *
  * Single PCM audio stream feeds BOTH:
  *   1. Sherpa zipformer (real-time rough text)
- *   2. Audio buffer (accumulated for offline whisper pass)
+ *   2. Audio buffer (accumulated for offline Canary pass)
  *
- * Timing for offline passes:
- *   - On each speech endpoint (pause detected by zipformer)
- *   - Minimum 5s between passes
- *   - Minimum 3s of accumulated audio
- *   - Maximum 30s without a pass
- *   - Always on stop (waits for any in-progress pass first)
- *   - One pass at a time, queues next segment if busy
+ * The offline pass writes audio to a temp WAV file and uses
+ * transcribeFileOffline() to avoid the React Native bridge overhead
+ * of passing 100K+ floats as a JSON array (which caused silent
+ * failures for segments > 5 seconds).
+ *
+ * Timing: 5s min between passes, 3s min audio, 30s max without pass.
  */
 
+import * as FileSystem from "expo-file-system/legacy";
 import { createPcmLiveStream } from "react-native-sherpa-onnx/audio";
 import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 import type { SttStream } from "react-native-sherpa-onnx/stt";
 import { getSherpaEngine } from "./sherpa-streaming";
-import { transcribeOffline, isWhisperReady } from "./whisper-offline";
+import { transcribeFileOffline, isWhisperReady } from "./whisper-offline";
 import { applyCorrections } from "../pipeline/correct";
-
-const MIN_PASS_INTERVAL_MS = 5_000;
-const MIN_AUDIO_SAMPLES = 16_000 * 3; // 3 seconds at 16kHz
-const MAX_NO_PASS_MS = 30_000;
-const SAMPLE_RATE = 16000;
+import {
+  createSegment,
+  buildTranscript,
+  shouldTriggerOfflinePass,
+  appendSamples,
+  segmentDurationSec,
+  samplesToWav,
+  uint8ToBase64,
+  Segment,
+  SAMPLE_RATE,
+  MIN_AUDIO_SAMPLES,
+  MAX_NO_PASS_MS,
+} from "./segment-manager";
 
 export interface HybridUpdate {
   text: string;
@@ -36,11 +44,18 @@ export interface HybridHandle {
   stop: () => Promise<void>;
 }
 
-interface Segment {
-  index: number;
-  streamingText: string;
-  offlineText: string | null;
-  audioSamples: number[];
+/**
+ * Write a segment's audio samples to a temp WAV file.
+ * Returns the file path. Caller must delete after use.
+ */
+async function writeSegmentToWav(seg: Segment): Promise<string> {
+  const wavPath = `${FileSystem.cacheDirectory}vox-offline-${seg.index}-${Date.now()}.wav`;
+  const wavBytes = samplesToWav(seg.audioSamples);
+  const base64 = uint8ToBase64(wavBytes);
+  await FileSystem.writeAsStringAsync(wavPath, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return wavPath;
 }
 
 export async function startHybridTranscription(
@@ -52,76 +67,73 @@ export async function startHybridTranscription(
 
   // State
   const finishedSegments: Segment[] = [];
-  let currentSegment: Segment = {
-    index: 0, streamingText: "", offlineText: null, audioSamples: [],
-  };
+  let currentSegment = createSegment(0);
   let lastPassTime = 0;
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  // Offline pass serialization: only one whisper transcription at a time.
-  // offlinePromise tracks the currently running pass so we can await it.
+  // Offline pass serialization
   let offlinePromise: Promise<void> | null = null;
   let pendingSegment: Segment | null = null;
 
-  function buildTranscript(): string {
-    const parts: string[] = [];
-    for (const seg of finishedSegments) {
-      const t = seg.offlineText ?? seg.streamingText;
-      if (t.trim()) parts.push(t.trim());
-    }
-    const current = currentSegment.streamingText;
-    if (current.trim()) parts.push(current.trim());
-    return parts.join(". ");
-  }
-
   function emit(source: "streaming" | "offline") {
     if (stopped) return;
-    onUpdate({ text: buildTranscript(), source, offlineRunning: offlinePromise !== null });
+    onUpdate({
+      text: buildTranscript(finishedSegments, currentSegment),
+      source,
+      offlineRunning: offlinePromise !== null,
+    });
   }
 
-  // The actual offline transcription work. Caller must ensure
-  // no other pass is running (via offlinePromise guard).
   async function doOfflinePass(seg: Segment): Promise<void> {
     if (!isWhisperReady()) return;
     if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
 
-    const durationS = (seg.audioSamples.length / SAMPLE_RATE).toFixed(1);
-    console.log(`[vox] Offline pass #${seg.index}: ${durationS}s of audio`);
+    const durationS = segmentDurationSec(seg).toFixed(1);
+    console.log(`[vox] Offline pass #${seg.index}: ${durationS}s of audio, ${seg.audioSamples.length} samples`);
 
+    let wavPath: string | null = null;
     try {
-      // Pass float32 PCM samples directly to sherpa-onnx (no WAV file needed)
-      const rawText = await transcribeOffline(seg.audioSamples, SAMPLE_RATE);
+      // Write to temp WAV file to avoid bridge serialization of 100K+ floats
+      wavPath = await writeSegmentToWav(seg);
+      console.log(`[vox] WAV written: ${wavPath}`);
+
+      const rawText = await transcribeFileOffline(wavPath);
+      console.log(`[vox] Offline raw #${seg.index}: "${rawText.slice(0, 80)}"`);
+
       const corrected = applyCorrections(rawText.toLowerCase().trim());
-      seg.offlineText = corrected.text.trim();
-      console.log(`[vox] Offline #${seg.index}: "${seg.offlineText?.slice(0, 80)}"`);
+      const result = corrected.text.trim();
+
+      if (result) {
+        seg.offlineText = result;
+        console.log(`[vox] Offline #${seg.index}: "${result.slice(0, 80)}"`);
+      } else {
+        console.log(`[vox] Offline #${seg.index}: empty result, keeping streaming text`);
+      }
     } catch (e: any) {
       console.warn(`[vox] Offline pass error: ${e?.message ?? e}`);
     } finally {
       lastPassTime = Date.now();
+      // Clean up temp file
+      if (wavPath) {
+        try { await FileSystem.deleteAsync(wavPath, { idempotent: true }); } catch {}
+      }
     }
   }
 
-  // Schedule an offline pass on a segment, respecting the one-at-a-time rule.
   function scheduleOfflinePass(seg: Segment) {
     if (!isWhisperReady()) return;
     if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
 
     if (offlinePromise) {
-      // Busy. Queue this segment (replace any previously queued).
       pendingSegment = seg;
       return;
     }
 
-    // Start the pass
     offlinePromise = doOfflinePass(seg)
-      .then(() => {
-        emit("offline");
-      })
+      .then(() => emit("offline"))
       .finally(() => {
         offlinePromise = null;
-
-        // Process queued segment if any
         if (pendingSegment) {
           const next = pendingSegment;
           pendingSegment = null;
@@ -132,18 +144,11 @@ export async function startHybridTranscription(
 
   function tryOfflinePass() {
     if (stopped) return;
-    if (Date.now() - lastPassTime < MIN_PASS_INTERVAL_MS) return;
-    if (currentSegment.audioSamples.length < MIN_AUDIO_SAMPLES) return;
+    if (!shouldTriggerOfflinePass(currentSegment, lastPassTime, Date.now())) return;
 
-    // Move current segment to finished and start a new one
     const toProcess = currentSegment;
     finishedSegments.push(toProcess);
-    currentSegment = {
-      index: toProcess.index + 1,
-      streamingText: "",
-      offlineText: null,
-      audioSamples: [],
-    };
+    currentSegment = createSegment(toProcess.index + 1);
 
     scheduleOfflinePass(toProcess);
     resetMaxTimer();
@@ -165,9 +170,7 @@ export async function startHybridTranscription(
     if (stopped) return;
 
     // 1. Buffer audio for offline pass
-    for (let i = 0; i < samples.length; i++) {
-      currentSegment.audioSamples.push(samples[i]);
-    }
+    appendSamples(currentSegment, samples);
 
     // 2. Feed to sherpa streaming for real-time text
     try {
@@ -203,7 +206,7 @@ export async function startHybridTranscription(
       await pcm.stop();
       unsubData();
 
-      // Wait for any in-progress offline pass to finish
+      // Wait for any in-progress offline pass
       if (offlinePromise) {
         console.log("[vox] Waiting for in-progress offline pass...");
         await offlinePromise;
@@ -217,14 +220,14 @@ export async function startHybridTranscription(
         finishedSegments.push(currentSegment);
       }
 
-      // Process any pending segment that was queued
+      // Drain pending queue
       if (pendingSegment) {
         await doOfflinePass(pendingSegment);
         pendingSegment = null;
       }
 
       // Emit final transcript
-      stopped = false; // temporarily allow emit
+      stopped = false;
       emit("offline");
       stopped = true;
 
