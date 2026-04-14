@@ -133,15 +133,26 @@ export function samplesToWav(samples: number[]): Uint8Array {
 /**
  * Convert a Uint8Array to base64 string.
  * Used for writing binary data through expo-file-system.
+ *
+ * Uses a manual base64 encoder instead of btoa() because Hermes
+ * (React Native's JS engine) doesn't handle binary strings with
+ * characters > 127 correctly in btoa(), producing empty or corrupt output.
  */
 export function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const end = Math.min(i + chunkSize, bytes.length);
-    for (let j = i; j < end; j++) {
-      binary += String.fromCharCode(bytes[j]);
-    }
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const len = bytes.length;
+  const parts: string[] = [];
+
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+
+    parts.push(chars[b0 >> 2]);
+    parts.push(chars[((b0 & 3) << 4) | (b1 >> 4)]);
+    parts.push(i + 1 < len ? chars[((b1 & 15) << 2) | (b2 >> 6)] : "=");
+    parts.push(i + 2 < len ? chars[b2 & 63] : "=");
   }
-  return btoa(binary);
+
+  return parts.join("");
 }
