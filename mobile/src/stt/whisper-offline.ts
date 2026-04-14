@@ -63,6 +63,9 @@ export async function initWhisperOffline(): Promise<void> {
     modelPath: fileModelPath(modelPath),
     modelType: "whisper",
     numThreads: 4,
+    modelOptions: {
+      whisper: { language: "fr", task: "transcribe" },
+    },
     debug: true,
   });
 
