@@ -77,6 +77,7 @@ async function doInit(): Promise<void> {
     modelPath: fileModelPath(modelPath),
     modelType: "canary",
     numThreads: 4,
+    dither: 0.001, // Fix for empty results: sherpa-onnx issue #2258
     modelOptions: {
       canary: { srcLang: "fr", tgtLang: "fr", usePnc: true },
     },

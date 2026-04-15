@@ -84,6 +84,29 @@ export function segmentDurationSec(segment: Segment): number {
 }
 
 /**
+ * Add dithering (tiny random noise) to audio samples.
+ *
+ * Workaround for sherpa-onnx Canary empty results: the C++ code
+ * hardcodes dither=0 for Canary (offline-recognizer-canary-impl.h),
+ * overriding any user setting. Without dithering, clean digital audio
+ * can produce exact-zero values in the mel feature extractor, which
+ * causes the NeMo encoder to produce empty output (issue #2258).
+ *
+ * We apply dithering at the application level before writing the WAV.
+ */
+export function addDither(samples: number[], amount: number = 0.00001): number[] {
+  const result = new Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    // Gaussian-ish noise via Box-Muller (cheap approximation)
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const noise = Math.sqrt(-2 * Math.log(u1 + 1e-10)) * Math.cos(2 * Math.PI * u2);
+    result[i] = samples[i] + noise * amount;
+  }
+  return result;
+}
+
+/**
  * Create a WAV file buffer from float32 PCM samples.
  * Returns a Uint8Array containing a valid 16-bit 16kHz mono WAV file.
  *
