@@ -25,9 +25,9 @@ import { createSTT } from "react-native-sherpa-onnx/stt";
 import { fileModelPath } from "react-native-sherpa-onnx";
 import type { SttEngine } from "react-native-sherpa-onnx/stt";
 
-// NVidia Canary-180M-Flash: 182M params, 4.75% WER on MLS French, int8 quantized
-// Pre-built in sherpa-onnx, supports EN/ES/DE/FR
-const OFFLINE_MODEL_ID = "sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8";
+// NVidia NeMo Fast Conformer CTC int8: 98MB, streaming-compatible via nemo_ctc
+// Previously crashed on S22 with "window_size metadata missing" — testing on emulator
+const OFFLINE_MODEL_ID = "sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8";
 
 export interface WhisperDownloadProgress {
   percent: number;
@@ -67,24 +67,37 @@ export async function initOfflineEngine(): Promise<void> {
 }
 
 async function doInit(): Promise<void> {
-  modelPath = await downloadOfflineModel((p) => {
-    console.log(`[vox] Offline model download: ${Math.round(p.percent)}%`);
-  });
+  // Try local model first (pushed via adb for testing), then download
+  const localPath = "/data/local/tmp/nemo-ctc-fr";
+  let usePath: string;
 
-  console.log(`[vox] Loading Canary-180M-Flash from ${modelPath}`);
+  try {
+    const FileSystem = require("expo-file-system/legacy");
+    const info = await FileSystem.getInfoAsync(`file://${localPath}/model.int8.onnx`);
+    if (info.exists) {
+      console.log(`[vox] Using local model at ${localPath}`);
+      usePath = localPath;
+    } else {
+      throw new Error("not found");
+    }
+  } catch {
+    console.log("[vox] Downloading offline model...");
+    usePath = await downloadOfflineModel((p) => {
+      console.log(`[vox] Offline model download: ${Math.round(p.percent)}%`);
+    });
+  }
+
+  console.log(`[vox] Loading offline model from ${usePath}`);
 
   sttEngine = await createSTT({
-    modelPath: fileModelPath(modelPath),
-    modelType: "canary",
+    modelPath: fileModelPath(usePath),
+    modelType: "auto",
     numThreads: 4,
-    dither: 0.001, // Fix for empty results: sherpa-onnx issue #2258
-    modelOptions: {
-      canary: { srcLang: "fr", tgtLang: "fr", usePnc: true },
-    },
+    dither: 0.001,
     debug: true,
   });
 
-  console.log("[vox] Canary-180M-Flash offline engine ready");
+  console.log("[vox] Offline engine ready");
 }
 
 export function isWhisperReady(): boolean {
