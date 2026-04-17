@@ -156,25 +156,32 @@ export default function App() {
 
   async function downloadOfflineInBackground() {
     try {
-      console.log("[vox] Downloading Canary-180M-Flash in background...");
+      console.log("[vox] Initializing offline engine in background...");
       await initOfflineEngine();
       setOfflineReady(true);
-      console.log("[vox] Canary-180M-Flash offline engine ready");
+      console.log("[vox] Offline engine ready (background)");
     } catch (e: any) {
       // Non-fatal: streaming still works without offline pass
       console.warn(`[vox] Offline engine init failed (non-fatal): ${e?.message ?? e}`);
     }
   }
 
+  // Text finalized from previous recording sessions (accumulated across pauses)
+  const previousTextRef = useRef("");
+
   async function handleStartRecording() {
     if (!isSherpaReady()) {
       setError("Modèle non chargé");
       return;
     }
+    // Snapshot current transcript as the "previous" baseline
+    previousTextRef.current = transcript;
     try {
       const handle = await startHybridTranscription(
         (update: HybridUpdate) => {
-          setTranscript(update.text);
+          const prev = previousTextRef.current;
+          const sep = prev && update.text ? ". " : "";
+          setTranscript(prev + sep + update.text);
         },
         (errMsg) => {
           setError(`Transcription: ${errMsg}`);

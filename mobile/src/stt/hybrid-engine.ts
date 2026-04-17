@@ -172,32 +172,65 @@ export async function startHybridTranscription(
 
   pcm.onError((msg: string) => onError(`Audio: ${msg}`));
 
-  const unsubData = pcm.onData(async (samples: Float32Array, sampleRate: number) => {
-    if (stopped) return;
+  // Serialize access to sttStream. PCM callbacks fire every ~20-100ms;
+  // if processAudioChunk takes longer than that interval, the next callback
+  // would call into the native stream concurrently, causing a native crash.
+  let processing = false;
+  const pendingChunks: { samples: Float32Array; sampleRate: number }[] = [];
 
-    // 1. Buffer audio for offline pass
-    appendSamples(currentSegment, samples);
+  async function processNextChunk() {
+    if (processing || stopped) return;
+    const next = pendingChunks.shift();
+    if (!next) return;
 
-    // 2. Feed to sherpa streaming for real-time text
+    processing = true;
     try {
       const { result, isEndpoint } = await sttStream.processAudioChunk(
-        Array.from(samples),
-        sampleRate
+        Array.from(next.samples),
+        next.sampleRate
       );
 
-      if (result.text) {
+      if (isEndpoint) {
+        // Reset FIRST, then rotate segment. This ensures:
+        // 1. The stream is reset before any more chunks are processed
+        // 2. Queued chunks after this point feed the new (empty) stream
+        // 3. No stale text from the old stream leaks into the new segment
+        await sttStream.reset();
+
+        // Finalize the current segment's streaming text before rotating
+        if (result.text) {
+          const corrected = applyCorrections(result.text.toLowerCase().trim());
+          currentSegment.streamingText = corrected.text.trim();
+        }
+
+        tryOfflinePass();
+
+        // Flush any queued chunks that arrived during reset — they contain
+        // audio that was already buffered into the OLD segment. Feeding them
+        // into the freshly-reset stream would produce duplicate text.
+        pendingChunks.length = 0;
+      } else if (result.text) {
         const corrected = applyCorrections(result.text.toLowerCase().trim());
         currentSegment.streamingText = corrected.text.trim();
         emit("streaming");
       }
-
-      if (isEndpoint) {
-        await sttStream.reset();
-        tryOfflinePass();
-      }
     } catch (e: any) {
       onError(e?.message ?? String(e));
+    } finally {
+      processing = false;
+      if (pendingChunks.length > 0) processNextChunk();
     }
+  }
+
+  const unsubData = pcm.onData(async (samples: Float32Array, sampleRate: number) => {
+    if (stopped) return;
+
+    // 1. Buffer audio for offline pass (sync, always runs)
+    appendSamples(currentSegment, samples);
+
+    // 2. Queue for sherpa streaming (serialized to prevent concurrent native calls)
+    pendingChunks.push({ samples, sampleRate });
+    processNextChunk();
   });
 
   await pcm.start();
@@ -226,8 +259,13 @@ export async function startHybridTranscription(
         finishedSegments.push(currentSegment);
       }
 
+      // Replace currentSegment with an empty one so buildTranscript
+      // doesn't double-count the segment we just pushed to finishedSegments.
+      currentSegment = createSegment(currentSegment.index + 1);
+
       // Drain pending queue
       if (pendingSegment) {
+        finishedSegments.push(pendingSegment);
         await doOfflinePass(pendingSegment);
         pendingSegment = null;
       }

@@ -128,11 +128,22 @@ export async function startSherpaRealtime(
 
   pcm.onError((msg: string) => onError(`Audio: ${msg}`));
 
-  const unsubData = pcm.onData(async (samples: Float32Array, sampleRate: number) => {
+  // Serialize access to the native stream. PCM callbacks can fire faster
+  // than processAudioChunk completes (it crosses the RN bridge). Concurrent
+  // calls to the same native SttStream cause undefined behavior / crash.
+  let processing = false;
+  const pendingChunks: { samples: Float32Array; sampleRate: number }[] = [];
+
+  async function processNextChunk() {
+    if (processing) return;
+    const next = pendingChunks.shift();
+    if (!next) return;
+
+    processing = true;
     try {
       const { result, isEndpoint } = await stream.processAudioChunk(
-        Array.from(samples),
-        sampleRate
+        Array.from(next.samples),
+        next.sampleRate
       );
       if (result.text) {
         onUpdate({ text: result.text, isEndpoint });
@@ -142,7 +153,15 @@ export async function startSherpaRealtime(
       }
     } catch (e: any) {
       onError(e?.message ?? String(e));
+    } finally {
+      processing = false;
+      if (pendingChunks.length > 0) processNextChunk();
     }
+  }
+
+  const unsubData = pcm.onData(async (samples: Float32Array, sampleRate: number) => {
+    pendingChunks.push({ samples, sampleRate });
+    processNextChunk();
   });
 
   await pcm.start();
