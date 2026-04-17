@@ -1,9 +1,15 @@
 /**
  * Performance benchmark for on-device execution.
  *
- * Runs each spike recording through both STT engines (streaming zipformer
- * and offline Canary), applies corrections, and computes WER against
- * ground truth. Measures wall-clock time for each step.
+ * Runs each spike recording through the configured STT engine,
+ * applies corrections, and computes WER against ground truth.
+ * Measures wall-clock time for each step.
+ *
+ * Model config lives in ./model-config.ts. To test a different model:
+ * 1. Push model files to device via adb
+ * 2. Update model-config.ts with the new path/type
+ * 3. Rebuild + run
+ * 4. Copy results to tools/model-eval/registry.json
  */
 
 import * as FileSystem from "expo-file-system/legacy";
@@ -11,6 +17,7 @@ import { transcribeFileOffline, isWhisperReady } from "../stt/whisper-offline";
 import { applyCorrections } from "../pipeline/correct";
 import { computeWer, computeAggregateWer, formatWer, WerResult } from "./wer";
 import { TEST_RECORDINGS, PROSE_RECORDINGS, TestRecording } from "./test-data";
+import { OFFLINE_MODEL, STREAMING_MODEL } from "./model-config";
 
 export interface BenchmarkFileResult {
   id: string;
@@ -31,6 +38,8 @@ export interface BenchmarkFileResult {
 export interface BenchmarkReport {
   timestamp: string;
   device: string;
+  modelId: string;
+  modelName: string;
   files: BenchmarkFileResult[];
   aggregate: {
     offlineRawWer: number;
@@ -58,6 +67,8 @@ async function loadGroundTruth(path: string): Promise<string> {
  */
 export async function runBenchmark(): Promise<BenchmarkReport> {
   console.log("[VoxBench] === Starting benchmark ===");
+  console.log(`[VoxBench] Model: ${OFFLINE_MODEL.name} (${OFFLINE_MODEL.id})`);
+  console.log(`[VoxBench] Path: ${OFFLINE_MODEL.localPath}`);
 
   if (!isWhisperReady()) {
     throw new Error("Offline engine not ready. Init before benchmarking.");
@@ -165,6 +176,8 @@ export async function runBenchmark(): Promise<BenchmarkReport> {
   const report: BenchmarkReport = {
     timestamp: new Date().toISOString(),
     device: "emulator", // TODO: detect device model
+    modelId: OFFLINE_MODEL.id,
+    modelName: OFFLINE_MODEL.name,
     files: results,
     aggregate: {
       offlineRawWer: aggRaw.wer,

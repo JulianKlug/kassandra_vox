@@ -55,7 +55,34 @@ When react-native-sherpa-onnx updates the bundled sherpa-onnx to support newer m
 - NeMo Fast Conformer CTC FR int8 (98MB, NVidia-trained, streaming via nemo_ctc)
 - Kroko FR 2025 (55MB, newer zipformer2, likely better accuracy)
 
-## 3. Canary model max 40-second input
+## 3. Kroko FR streaming model crashes sherpa-onnx v1.12.34
+**Date:** 2026-04-16
+**Symptom:** Loading the current Kroko French zipformer2 model (70 MB encoder) via `createStreamingSTT({ modelType: "transducer" })` aborts the app with:
+
+```
+sherpa-onnx: 'attention_dims' does not exist in the metadata
+online-zipformer-transducer-model.cc:InitEncoder:107
+ActivityManager: Process com.vox.dictation has died: fg TOP
+```
+
+**Severity:** Low — we already have a working streaming model (zipformer FR 2023).
+
+### Root cause
+Same class of bug as solved #12: react-native-sherpa-onnx 0.4.2 bundles sherpa-onnx v1.12.34, which expects `attention_dims` / `window_size` in encoder ONNX metadata. Newer Kroko builds ship without those fields; the C++ init path aborts the process instead of returning an error.
+
+### What we verified
+- Model files copied into the app's document directory cleanly (encoder 70 MB, plus decoder/joiner/tokens).
+- Native path resolver found all 4 files (`resolveFilePath: resolved=..., contents=[encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt]`).
+- Crash fires ~2 seconds after `InitEncoder` starts reading metadata.
+
+### Fix requires one of
+- react-native-sherpa-onnx updates bundled sherpa-onnx to a version that tolerates missing metadata (or Kroko ships encoders with the legacy fields).
+- Fork + bump the native dependency ourselves (large scope, native build risk).
+- Find an older Kroko build that still ships `attention_dims`.
+
+Keeping current streaming model (sherpa-onnx-streaming-zipformer-fr-2023-04-14-mobile) until upstream moves.
+
+## 4. Canary model max 40-second input
 **Date:** 2026-04-15
 **Symptom:** NVidia documents that Canary-180M-Flash should be used with audio < 40 seconds. For longer audio, chunked inference is needed.
 **Severity:** Medium — affects long dictation segments.

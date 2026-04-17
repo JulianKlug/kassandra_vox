@@ -1,0 +1,139 @@
+{
+  "current_best": {
+    "streaming": "zipformer-fr-2023-mobile",
+    "offline": "nemo-ctc-fr-int8"
+  },
+  "models": {
+    "zipformer-fr-2023-mobile": {
+      "name": "Zipformer FR 2023 Mobile",
+      "type": "streaming",
+      "engine": "sherpa-onnx",
+      "model_type": "transducer",
+      "sherpa_id": "sherpa-onnx-streaming-zipformer-fr-2023-04-14-mobile",
+      "size_mb": 351,
+      "languages": ["fr"],
+      "notes": "General-purpose French streaming model. Poor on medical terms without correction dictionary.",
+      "results": {}
+    },
+    "nemo-ctc-fr-int8": {
+      "name": "NeMo Fast Conformer CTC int8",
+      "type": "offline",
+      "engine": "sherpa-onnx",
+      "model_type": "nemo_ctc",
+      "sherpa_id": "sherpa-onnx-nemo-fast-conformer-ctc-en-de-es-fr-14288-int8",
+      "local_path": "/data/local/tmp/nemo-ctc-fr",
+      "size_mb": 126,
+      "languages": ["en", "de", "es", "fr"],
+      "notes": "NVidia multilingual CTC. Fast, reliable. Current offline model.",
+      "results": {
+        "emulator-2026-04-16": {
+          "tier": "emulator",
+          "date": "2026-04-16",
+          "device": "Android 14 emulator (x86_64)",
+          "files_total": 10,
+          "files_success": 10,
+          "avg_inference_ms": 1816,
+          "overall_wer_raw": 0.574,
+          "overall_wer_corrected": 0.566,
+          "prose_wer_raw": 0.461,
+          "prose_wer_corrected": 0.448,
+          "per_file": [
+            {"id": "Voice 260331_225712", "type": "prose", "inference_ms": 708, "wer_raw": 0.441, "wer_corrected": 0.407},
+            {"id": "Voice 260331_225748", "type": "prose", "inference_ms": 832, "wer_raw": 0.478, "wer_corrected": 0.478},
+            {"id": "Voice 260331_225822", "type": "prose", "inference_ms": 1280, "wer_raw": 0.449, "wer_corrected": 0.472},
+            {"id": "Voice 260331_225933", "type": "structured", "inference_ms": 3677, "wer_raw": 0.759, "wer_corrected": 0.759},
+            {"id": "Voice 260331_230119", "type": "prose", "inference_ms": 1506, "wer_raw": 0.648, "wer_corrected": 0.659},
+            {"id": "Voice 260331_230214", "type": "structured", "inference_ms": 2210, "wer_raw": 0.689, "wer_corrected": 0.689},
+            {"id": "Voice 260403_224134", "type": "structured", "inference_ms": 1654, "wer_raw": 0.942, "wer_corrected": 0.942},
+            {"id": "Voice 260403_224258", "type": "prose", "inference_ms": 1769, "wer_raw": 0.385, "wer_corrected": 0.368},
+            {"id": "Voice 260403_224558", "type": "prose", "inference_ms": 3414, "wer_raw": 0.426, "wer_corrected": 0.392},
+            {"id": "Voice 260403_225013", "type": "structured", "inference_ms": 1106, "wer_raw": 0.761, "wer_corrected": 0.761}
+          ]
+        },
+        "phone-2026-04-17": {
+          "tier": "phone",
+          "date": "2026-04-17",
+          "device": "Samsung S22 (Snapdragon 8 Gen 1, 8GB RAM)",
+          "files_total": 10,
+          "files_success": 10,
+          "avg_inference_ms": 2133,
+          "overall_wer_raw": 0.582,
+          "overall_wer_corrected": 0.577,
+          "prose_wer_raw": 0.467,
+          "prose_wer_corrected": 0.459,
+          "per_file": [
+            {"id": "Voice 260331_225712", "type": "prose", "inference_ms": 871, "wer_raw": 0.441, "wer_corrected": 0.424},
+            {"id": "Voice 260331_225748", "type": "prose", "inference_ms": 969, "wer_raw": 0.464, "wer_corrected": 0.464},
+            {"id": "Voice 260331_225822", "type": "prose", "inference_ms": 1790, "wer_raw": 0.438, "wer_corrected": 0.461},
+            {"id": "Voice 260331_225933", "type": "structured", "inference_ms": 4147, "wer_raw": 0.771, "wer_corrected": 0.771},
+            {"id": "Voice 260331_230119", "type": "prose", "inference_ms": 2033, "wer_raw": 0.692, "wer_corrected": 0.692},
+            {"id": "Voice 260331_230214", "type": "structured", "inference_ms": 2496, "wer_raw": 0.697, "wer_corrected": 0.697},
+            {"id": "Voice 260403_224134", "type": "structured", "inference_ms": 1738, "wer_raw": 0.942, "wer_corrected": 0.942},
+            {"id": "Voice 260403_224258", "type": "prose", "inference_ms": 1716, "wer_raw": 0.376, "wer_corrected": 0.359},
+            {"id": "Voice 260403_224558", "type": "prose", "inference_ms": 4412, "wer_raw": 0.440, "wer_corrected": 0.421},
+            {"id": "Voice 260403_225013", "type": "structured", "inference_ms": 1155, "wer_raw": 0.783, "wer_corrected": 0.783}
+          ]
+        }
+      }
+    },
+    "canary-180m-flash-int8": {
+      "name": "NVidia Canary-180M-Flash int8",
+      "type": "offline",
+      "engine": "sherpa-onnx",
+      "model_type": "nemo_transducer",
+      "sherpa_id": "sherpa-onnx-nemo-canary-180m-flash-en-fr-de-es-int8",
+      "size_mb": 147,
+      "languages": ["en", "fr", "de", "es"],
+      "notes": "Best published WER (4.75% MLS FR) but returns empty on 7/10 test files. Upstream bug in sherpa-onnx.",
+      "results": {
+        "s22-2026-04-15": {
+          "tier": "phone",
+          "date": "2026-04-15",
+          "device": "Samsung S22 (Snapdragon 8 Gen 1)",
+          "files_total": 10,
+          "files_success": 3,
+          "notes": "Only 3/10 files produce output. Empty result bug, see docs/issues/unsolved.md#1"
+        }
+      }
+    },
+    "kroko-fr-zipformer2": {
+      "name": "Kroko FR Zipformer2",
+      "type": "streaming",
+      "engine": "sherpa-onnx",
+      "model_type": "transducer",
+      "size_mb": 55,
+      "languages": ["fr"],
+      "notes": "Newer French-specific streaming model. BLOCKED: requires sherpa-onnx > v1.12.34 (attention_dims metadata crash).",
+      "results": {
+        "emulator-2026-04-16": {
+          "tier": "emulator",
+          "date": "2026-04-16",
+          "device": "Android 14 emulator (x86_64)",
+          "status": "CRASHED",
+          "error": "attention_dims does not exist in metadata (online-zipformer-transducer-model.cc:InitEncoder:107)",
+          "notes": "react-native-sherpa-onnx 0.4.2 bundles sherpa-onnx v1.12.34, too old for this model"
+        }
+      }
+    },
+    "bofenghuang-whisper-large-v3-fr-distil-dec2": {
+      "name": "bofenghuang whisper-large-v3-french-distil-dec2",
+      "type": "offline",
+      "engine": "sherpa-onnx",
+      "model_type": "whisper",
+      "size_mb": 1000,
+      "languages": ["fr"],
+      "notes": "Best French-specific Whisper distillation. ONNX conversion done but model too large (637 MB encoder int8 + 363 MB decoder int8). Not tested on device.",
+      "results": {}
+    }
+  },
+  "baselines": {
+    "whisper-large-v3-mac": {
+      "name": "whisper-large-v3 (Mac, Python)",
+      "date": "2026-04-13",
+      "device": "Mac (spike evaluation)",
+      "prose_wer_raw": 0.449,
+      "prose_wer_corrected": 0.423,
+      "notes": "Reference baseline from spike/evaluate.py"
+    }
+  }
+}
