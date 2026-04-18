@@ -12,12 +12,21 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { readFileSync, existsSync } from "fs";
+import { join, extname } from "path";
 import { WebSocketServer, WebSocket } from "ws";
 import { joinRoom, leaveRoom, broadcast, getRoomCount, startSweep, stopSweep, getRoom } from "./room.js";
 import { isValidRoomCode } from "./words.js";
 import { isRateLimited, clearRateLimit, startRateLimitSweep, stopRateLimitSweep } from "./rate-limit.js";
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
+const DESKTOP_DIR = process.env.DESKTOP_DIR || join(import.meta.dirname ?? ".", "..", "..", "desktop");
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+};
 const MAX_MESSAGE_BYTES = 64 * 1024; // 64 KB — clinical notes are <10 KB
 
 interface RelayMessage {
@@ -141,13 +150,30 @@ function handleDisconnect(ws: WebSocket, ip: string): void {
   clearRateLimit(ip);
 }
 
-// HTTP server for health checks
+// HTTP server: health check + desktop static files
 const httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
-  if (req.url === "/health") {
+  const url = req.url || "/";
+
+  if (url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok", rooms: getRoomCount() }));
     return;
   }
+
+  // Serve desktop SPA static files
+  const filePath = join(DESKTOP_DIR, url === "/" ? "index.html" : url);
+  const ext = extname(filePath);
+  const mime = MIME[ext];
+
+  if (mime && existsSync(filePath)) {
+    try {
+      const content = readFileSync(filePath);
+      res.writeHead(200, { "Content-Type": mime });
+      res.end(content);
+      return;
+    } catch {}
+  }
+
   res.writeHead(404);
   res.end("Not found");
 });

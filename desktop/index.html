@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Connect screen -->
+  <div id="connect-screen" class="screen">
+    <div class="connect-card">
+      <h1 class="brand">Vox</h1>
+      <p class="brand-sub">Dictee medicale privee</p>
+      <div class="connect-form">
+        <label for="room-input">Code de session</label>
+        <input id="room-input" type="text" placeholder="BLEU-TIGRE-42" autocomplete="off" spellcheck="false">
+        <button id="connect-btn">Connecter</button>
+        <p id="connect-error" class="error-msg" hidden></p>
+      </div>
+      <p class="privacy-note">Chiffrement de bout en bout. Aucun texte ne transite en clair.</p>
+    </div>
+  </div>
+
+  <!-- Dictation screen -->
+  <div id="dictation-screen" class="screen" hidden>
+    <div class="header">
+      <h1>Vox</h1>
+      <div class="status">
+        <span id="status-dot" class="dot dot-gray"></span>
+        <span id="status-label">Connexion...</span>
+      </div>
+      <div class="actions">
+        <button id="copy-btn">Copier tout</button>
+        <button id="export-btn">Exporter</button>
+        <button id="disconnect-btn" class="btn-danger">Deconnecter</button>
+      </div>
+    </div>
+
+    <div class="room-bar">
+      <span>Session:</span>
+      <span id="room-display" class="room-code"></span>
+      <span id="fingerprint-display" class="fingerprint"></span>
+    </div>
+
+    <div class="document">
+      <div id="transcript" class="transcript-area">
+        <p class="placeholder">En attente de la dictee...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/tweetnacl.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -38,6 +38,8 @@ import {
   HybridUpdate,
 } from "./src/stt/hybrid-engine";
 import { applyCorrections } from "./src/pipeline/correct";
+import { connectToRelay, RelayHandle, RelayState } from "./src/relay/relay-client";
+import { generateRoomCode } from "./src/relay/room-codes";
 
 // Design tokens (from DESIGN.md)
 const COLORS = {
@@ -72,6 +74,16 @@ export default function App() {
   const [offlineReady, setOfflineReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hybridRef = useRef<HybridHandle | null>(null);
+
+  // Relay state
+  const [roomCode] = useState(() => generateRoomCode());
+  const [relayState, setRelayState] = useState<RelayState>("disconnected");
+  const [relayFingerprint, setRelayFingerprint] = useState<string | null>(null);
+  const relayRef = useRef<RelayHandle | null>(null);
+
+  // Ref for transcript so relay callbacks always read current value
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
 
   // Check if launched in test mode via deep link OR flag file on device
   useEffect(() => {
@@ -148,10 +160,31 @@ export default function App() {
       // Do this in the background so the user can start dictating immediately
       setState("ready");
       downloadOfflineInBackground();
+      connectRelay();
     } catch (e: any) {
       setError(`Initialisation: ${e?.message ?? e}`);
       setState("needsDownload");
     }
+  }
+
+  function connectRelay() {
+    if (relayRef.current) return;
+    console.log(`[vox] Connecting to relay, room: ${roomCode}`);
+    relayRef.current = connectToRelay(roomCode, {
+      onStateChange: (s) => {
+        setRelayState(s);
+        if (s === "connected") {
+          setRelayFingerprint(relayRef.current?.getFingerprint() ?? null);
+        } else if (s === "disconnected" || s === "joined") {
+          setRelayFingerprint(null);
+        }
+      },
+      onCorrection: (text) => {
+        setTranscript(text);
+      },
+      onSyncRequest: () => transcriptRef.current,
+      onError: (msg) => console.warn(`[vox-relay] ${msg}`),
+    });
   }
 
   async function downloadOfflineInBackground() {
@@ -181,7 +214,10 @@ export default function App() {
         (update: HybridUpdate) => {
           const prev = previousTextRef.current;
           const sep = prev && update.text ? ". " : "";
-          setTranscript(prev + sep + update.text);
+          const fullText = prev + sep + update.text;
+          setTranscript(fullText);
+          // Send to desktop via relay
+          relayRef.current?.sendTranscript(fullText);
         },
         (errMsg) => {
           setError(`Transcription: ${errMsg}`);
@@ -283,8 +319,24 @@ export default function App() {
           <Text style={styles.appTitle}>Vox</Text>
           <View style={styles.statusRight}>
             <View style={[styles.dot, { backgroundColor: offlineReady ? COLORS.success : COLORS.muted }]} />
-            <Text style={styles.statusLabel}>{offlineReady ? "HD" : "Chargement..."}</Text>
+            <Text style={styles.statusLabel}>{offlineReady ? "HD" : "..."}</Text>
+            <View style={{ width: 8 }} />
+            <View style={[styles.dot, {
+              backgroundColor: relayState === "connected" ? COLORS.success
+                : relayState === "reconnecting" ? "#ff9500"
+                : COLORS.muted
+            }]} />
+            <Text style={styles.statusLabel}>
+              {relayState === "connected" ? "Bureau" : relayState === "reconnecting" ? "Reco..." : "Local"}
+            </Text>
           </View>
+        </View>
+
+        <View style={styles.roomBar}>
+          <Text style={styles.roomCode}>{roomCode}</Text>
+          {relayFingerprint && (
+            <Text style={styles.fingerprint}>{relayFingerprint}</Text>
+          )}
         </View>
 
         <ScrollView
@@ -536,6 +588,31 @@ const styles = StyleSheet.create({
   statusLabel: {
     fontSize: 11,
     color: COLORS.muted,
+  },
+  roomBar: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    paddingHorizontal: 20,
+    paddingVertical: 6,
+    backgroundColor: "#f9f9f9",
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    gap: 8,
+  },
+  roomCode: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 12,
+    color: COLORS.primary,
+    backgroundColor: "#e8f5f5",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: "hidden" as const,
+  },
+  fingerprint: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 12,
+    color: COLORS.secondary,
   },
   transcriptArea: {
     flex: 1,
