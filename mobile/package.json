@@ -23,7 +23,9 @@
     "expo-system-ui": "~6.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-get-random-values": "^2.0.0",
     "react-native-sherpa-onnx": "^0.4.2",
+    "tweetnacl": "^1.0.3",
     "whisper.rn": "^0.5.5"
   },
   "devDependencies": {
