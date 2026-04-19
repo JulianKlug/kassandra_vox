@@ -4,7 +4,7 @@
  * Stale entries swept every 10 minutes.
  */
 
-const MAX_MESSAGES = 100;
+const MAX_MESSAGES = 300; // ~5/sec sustained, enough for throttled transcript streaming
 const WINDOW_MS = 60_000;
 const SWEEP_INTERVAL_MS = 10 * 60_000; // 10 minutes
 

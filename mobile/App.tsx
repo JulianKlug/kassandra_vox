@@ -203,6 +203,22 @@ export default function App() {
   // Text finalized from previous recording sessions (accumulated across pauses)
   const previousTextRef = useRef("");
 
+  // Throttle relay sends to avoid rate limiting (max 1 send per 300ms)
+  const relaySendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRelayText = useRef<string | null>(null);
+
+  function throttledRelaySend(text: string) {
+    pendingRelayText.current = text;
+    if (relaySendTimer.current) return; // already scheduled
+    relaySendTimer.current = setTimeout(() => {
+      relaySendTimer.current = null;
+      if (pendingRelayText.current !== null) {
+        relayRef.current?.sendTranscript(pendingRelayText.current);
+        pendingRelayText.current = null;
+      }
+    }, 300);
+  }
+
   async function handleStartRecording() {
     if (!isSherpaReady()) {
       setError("Modèle non chargé");
@@ -217,8 +233,7 @@ export default function App() {
           const sep = prev && update.text ? ". " : "";
           const fullText = prev + sep + update.text;
           setTranscript(fullText);
-          // Send to desktop via relay
-          relayRef.current?.sendTranscript(fullText);
+          throttledRelaySend(fullText);
         },
         (errMsg) => {
           setError(`Transcription: ${errMsg}`);
