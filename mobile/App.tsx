@@ -7,6 +7,7 @@
  * Design tokens come from /Users/jk/temp/vox/DESIGN.md.
  */
 
+import "react-native-get-random-values"; // Must be first: polyfills crypto.getRandomValues for tweetnacl
 import React, { useEffect, useState, useRef } from "react";
 import {
   StyleSheet,

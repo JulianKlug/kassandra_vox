@@ -16,8 +16,11 @@ import {
   type KeyPair,
 } from "../crypto/e2e";
 
+// Dev: use the host machine's local IP so the phone can reach the relay
+// over WiFi without adb reverse. Update this IP if your network changes.
+const DEV_RELAY_HOST = "192.168.1.21";
 const RELAY_URL = __DEV__
-  ? "ws://10.0.2.2:8080" // Android emulator → host
+  ? `ws://${DEV_RELAY_HOST}:8080`
   : "wss://vox-relay.fly.dev";
 
 const RECONNECT_BASE_MS = 1000;
