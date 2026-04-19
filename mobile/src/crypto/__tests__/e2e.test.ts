@@ -6,6 +6,7 @@ import {
   encrypt,
   decrypt,
   isKeyExchange,
+  computeFingerprint,
 } from "../e2e";
 
 describe("E2E encryption", () => {
@@ -66,6 +67,32 @@ describe("E2E encryption", () => {
     const c1 = encrypt(plaintext, bob.publicKey, alice.secretKey);
     const c2 = encrypt(plaintext, bob.publicKey, alice.secretKey);
     expect(c1).not.toBe(c2); // different nonces
+  });
+
+  it("supports bidirectional correction flow", () => {
+    // Simulate: phone sends transcript, desktop sends correction back
+    const phoneKp = generateKeyPair();
+    const desktopKp = generateKeyPair();
+
+    // Phone → desktop: transcript
+    const transcript = JSON.stringify({ type: "transcript", text: "le patient arrive", ts: 1 });
+    const encrypted1 = encrypt(transcript, desktopKp.publicKey, phoneKp.secretKey);
+    const decrypted1 = decrypt(encrypted1, phoneKp.publicKey, desktopKp.secretKey);
+    expect(JSON.parse(decrypted1!).text).toBe("le patient arrive");
+
+    // Desktop → phone: correction
+    const correction = JSON.stringify({ type: "correction", text: "le patient arrive hemodynamiquement instable", ts: 2 });
+    const encrypted2 = encrypt(correction, phoneKp.publicKey, desktopKp.secretKey);
+    const decrypted2 = decrypt(encrypted2, desktopKp.publicKey, phoneKp.secretKey);
+    expect(JSON.parse(decrypted2!).type).toBe("correction");
+    expect(JSON.parse(decrypted2!).text).toBe("le patient arrive hemodynamiquement instable");
+  });
+
+  it("computes matching fingerprints from both sides", () => {
+    const fp1 = computeFingerprint(alice.publicKey, bob.publicKey);
+    const fp2 = computeFingerprint(bob.publicKey, alice.publicKey);
+    expect(fp1).toBe(fp2);
+    expect(fp1).toMatch(/^\d{4}$/);
   });
 
   it("rejects garbage as key exchange", () => {

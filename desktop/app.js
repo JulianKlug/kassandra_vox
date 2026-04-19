@@ -22,6 +22,7 @@ let peerPublicKey = null;
 let reconnectAttempt = 0;
 let reconnectTimer = null;
 let transcript = "";
+let isEditing = false; // true while doctor is editing on desktop
 
 // ── DOM ──
 
@@ -234,7 +235,8 @@ function handleAppMessage(msg) {
     case "transcript":
     case "sync-response":
       transcript = msg.text || "";
-      renderTranscript();
+      // Don't overwrite the DOM while the doctor is editing
+      if (!isEditing) renderTranscript();
       break;
   }
 }
@@ -302,12 +304,20 @@ function setStatus(state) {
 
 function renderTranscript() {
   if (!transcript.trim()) {
-    transcriptArea.innerHTML = '<p class="placeholder">En attente de la dictee...</p>';
+    transcriptArea.innerHTML = "";
+    const ph = document.createElement("p");
+    ph.className = "placeholder";
+    ph.textContent = "En attente de la dictee...";
+    transcriptArea.appendChild(ph);
+    transcriptArea.contentEditable = "false";
     return;
   }
-  // Render text with cursor at end
-  const escaped = transcript.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  transcriptArea.innerHTML = escaped + '<span class="cursor"></span>';
+  // Use textContent (not innerHTML) to prevent XSS, append cursor via DOM API
+  transcriptArea.textContent = transcript;
+  const cursor = document.createElement("span");
+  cursor.className = "cursor";
+  transcriptArea.appendChild(cursor);
+  transcriptArea.contentEditable = "true";
 }
 
 function showError(msg) {
@@ -361,6 +371,40 @@ connectBtn.addEventListener("click", () => {
 
 roomInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") connectBtn.click();
+});
+
+// ── Editing ──
+
+transcriptArea.addEventListener("focus", () => {
+  isEditing = true;
+  // Remove the blinking cursor while editing (doctor uses real cursor)
+  const cursor = transcriptArea.querySelector(".cursor");
+  if (cursor) cursor.remove();
+});
+
+transcriptArea.addEventListener("blur", () => {
+  isEditing = false;
+  // Read the edited text from the DOM
+  const editedText = transcriptArea.innerText.trim();
+  if (editedText && editedText !== transcript) {
+    transcript = editedText;
+    // Send correction to phone
+    sendEncrypted(JSON.stringify({
+      type: "correction",
+      text: editedText,
+      ts: Date.now(),
+    }));
+  }
+  // Re-render to restore cursor animation
+  renderTranscript();
+});
+
+// Prevent Enter from inserting <div> elements in contenteditable
+transcriptArea.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    document.execCommand("insertText", false, "\n");
+  }
 });
 
 // ── Init ──

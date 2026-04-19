@@ -218,6 +218,28 @@ describe("relay flow", () => {
     ws1.close(); ws2.close();
   });
 
+  it("forwards bidirectionally (phone → desktop, desktop → phone)", async () => {
+    const phone = await connect(port);
+    const desktop = await connect(port);
+    send(phone, { type: "join", room: "BIDIR-TEST-01" });
+    await waitForMessage(phone);
+    send(desktop, { type: "join", room: "BIDIR-TEST-01" });
+    await waitForMessage(desktop);
+    await waitForMessage(phone); // peer-join
+
+    // Phone → desktop (transcript)
+    send(phone, { type: "relay", room: "BIDIR-TEST-01", payload: "phone-transcript" });
+    const fromPhone = await waitForMessage(desktop);
+    expect(fromPhone.payload).toBe("phone-transcript");
+
+    // Desktop → phone (correction)
+    send(desktop, { type: "relay", room: "BIDIR-TEST-01", payload: "desktop-correction" });
+    const fromDesktop = await waitForMessage(phone);
+    expect(fromDesktop.payload).toBe("desktop-correction");
+
+    phone.close(); desktop.close();
+  });
+
   it("rejects relay when not in room", async () => {
     const ws = await connect(port);
     send(ws, { type: "relay", room: "BLEU-TIGRE-42", payload: "test" });

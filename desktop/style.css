@@ -171,6 +171,18 @@ body {
   word-wrap: break-word;
 }
 
+.transcript-area:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(10, 126, 140, 0.15);
+  border-radius: 4px;
+}
+
+.transcript-area[contenteditable="true"]:hover {
+  background: #fafafa;
+  border-radius: 4px;
+  cursor: text;
+}
+
 .placeholder {
   color: #c7c7cc;
   font-style: italic;

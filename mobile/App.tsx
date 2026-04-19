@@ -86,6 +86,10 @@ export default function App() {
   const transcriptRef = useRef(transcript);
   transcriptRef.current = transcript;
 
+  // Brief cooldown after receiving a desktop correction, prevents
+  // the hybrid engine's next update from overwriting the edit
+  const correctionCooldown = useRef(false);
+
   // Check if launched in test mode via deep link OR flag file on device
   useEffect(() => {
     (async () => {
@@ -182,6 +186,11 @@ export default function App() {
       },
       onCorrection: (text) => {
         setTranscript(text);
+        previousTextRef.current = text;
+        // Pause relay sends briefly so the hybrid engine's next update
+        // doesn't immediately overwrite the correction with stale text.
+        correctionCooldown.current = true;
+        setTimeout(() => { correctionCooldown.current = false; }, 1000);
       },
       onSyncRequest: () => transcriptRef.current,
       onError: (msg) => console.warn(`[vox-relay] ${msg}`),
@@ -208,11 +217,12 @@ export default function App() {
   const pendingRelayText = useRef<string | null>(null);
 
   function throttledRelaySend(text: string) {
+    if (correctionCooldown.current) return; // desktop just sent a correction, don't overwrite
     pendingRelayText.current = text;
     if (relaySendTimer.current) return; // already scheduled
     relaySendTimer.current = setTimeout(() => {
       relaySendTimer.current = null;
-      if (pendingRelayText.current !== null) {
+      if (pendingRelayText.current !== null && !correctionCooldown.current) {
         relayRef.current?.sendTranscript(pendingRelayText.current);
         pendingRelayText.current = null;
       }
