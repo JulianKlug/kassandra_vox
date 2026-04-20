@@ -70,14 +70,23 @@ function hasContext(words: string[], contextTerms: string[], position: number, w
   return contextTerms.some((ctx) => windowText.includes(ctx.toLowerCase()));
 }
 
+export interface CorrectionOptions {
+  dictionary?: boolean;   // default true
+  phonetic?: boolean;     // default true
+}
+
 export function applyCorrections(
   inputText: string,
-  dict: CorrectionEntry[] = corrections
+  dict: CorrectionEntry[] = corrections,
+  options: CorrectionOptions = {}
 ): CorrectionResult {
+  const { dictionary = true, phonetic: usePhonetic = true } = options;
   const applied: AppliedCorrection[] = [];
   let text = inputText;
 
-  for (const entry of dict) {
+  if (!dictionary && !usePhonetic) return { text, applied };
+
+  for (const entry of dictionary ? dict : []) {
     const { pattern, correction } = entry;
     const maxEd = entry.edit_distance ?? 1;
     const ctx = entry.context ?? [];
@@ -143,6 +152,7 @@ export function applyCorrections(
   }
 
   // Layer 3: Phonetic matching for words not caught by the dictionary
+  if (!usePhonetic) return { text, applied };
   const phonetic = applyPhoneticCorrections(text);
   if (phonetic.matches.length > 0) {
     text = phonetic.text;
