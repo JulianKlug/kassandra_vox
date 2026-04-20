@@ -82,7 +82,53 @@ Same class of bug as solved #12: react-native-sherpa-onnx 0.4.2 bundles sherpa-o
 
 Keeping current streaming model (sherpa-onnx-streaming-zipformer-fr-2023-04-14-mobile) until upstream moves.
 
-## 4. Canary model max 40-second input
+## 4. Medical French WER is ~46% (unusable for production)
+**Date:** 2026-04-19 — 2026-04-20
+**Symptom:** All available on-device STT models produce ~45-55% WER on Swiss French medical dictation. Doctors need <15-20% WER for the output to be usable with light editing.
+**Severity:** High — the core product promise (accurate medical dictation) is not met.
+
+### What we tested (desktop benchmark, 10 recordings)
+
+| Model | Type | Size | Prose WER | Notes |
+|-------|------|------|-----------|-------|
+| zipformer FR 2023 | streaming transducer | 351 MB | 52.7% | Current streaming model |
+| NeMo CTC FR int8 | offline CTC | 126 MB | 46.1% | Current offline model |
+| whisper-small | offline whisper | 610 MB | 53.9% avg | 3-5x slower, truncates at 30s |
+| SenseVoice | offline | 1.1 GB | N/A | Doesn't support French despite docs |
+
+### What we tried to improve quality
+
+**Hotwords / contextual biasing (Layer 1):**
+- The zipformer FR 2023 model didn't ship a `bpe.vocab` file. sherpa-onnx silently ignored all hotwords.
+- We downloaded `bpe.model` from the original icefall training repo and generated `bpe.vocab`.
+- With bpe.vocab + modified_beam_search + 203 medical French hotwords: **no WER improvement**.
+- Tested boost scores 2.5, 5.0, 10.0, 20.0. Higher scores made WER worse (over-biasing).
+- **Root cause:** The errors aren't near-misses. The model hears "NORDLIN" not "noradrénaline". The phonetic gap is too large for beam search biasing to bridge. Hotwords help when the model is acoustically close to the right word. For medical vocabulary the model has never seen, it produces entirely different phonemes.
+
+**Model search:**
+- No streaming transducer model supporting French + hotwords exists besides zipformer FR 2023.
+- No French-specific model achieves <40% WER on medical text on-device.
+- The quality ceiling for untrained general-purpose models on medical French is ~40-50% WER.
+- sherpa-onnx GitHub Issue #3144 confirms this gap: no good French streaming model exists.
+
+### What might work (not yet tried)
+
+1. **Expanded correction dictionary (Layer 2):** Grow from 35 to 500+ entries using MeSH French medical vocabulary. Works on text output, not decoder internals. Expected 5-10% WER reduction.
+
+2. **French phonetic matching (Layer 3):** Soundex-FR or phonetic hash to match STT errors to medical terms. Handles "NORDLIN" → "noradrénaline" by phonetic similarity. Expected 5-15% WER reduction.
+
+3. **CamemBERT-bio scoring (Layer 4):** French biomedical BERT (110 MB) for perplexity-based disambiguation. Only if Layers 2-3 aren't enough.
+
+4. **On-device LLM correction:** Small LLM (1-2 GB, e.g., Qwen 2.5 1.5B) to rewrite STT output. Highest quality ceiling but heaviest approach.
+
+5. **User-adaptive corrections:** Learn from doctor's edits over time. When doctor corrects "NORDLIN" → "noradrénaline" once, apply automatically forever.
+
+6. **Fine-tune the model:** Use icefall's `pruned_transducer_stateless7_streaming` recipe to fine-tune the zipformer on French medical audio. Would need a medical French speech corpus.
+
+### Key insight
+The bottleneck is NOT the model architecture or inference engine. It's the **training data**. All models were trained on general French (CommonVoice, news, etc.) and have never seen medical vocabulary. Post-processing correction is the practical path until a medical French model exists.
+
+## 5. Canary model max 40-second input
 **Date:** 2026-04-15
 **Symptom:** NVidia documents that Canary-180M-Flash should be used with audio < 40 seconds. For longer audio, chunked inference is needed.
 **Severity:** Medium — affects long dictation segments.

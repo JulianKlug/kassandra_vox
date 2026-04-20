@@ -14,6 +14,7 @@
 
 import * as FileSystem from "expo-file-system/legacy";
 import { transcribeFileOffline, isWhisperReady } from "../stt/whisper-offline";
+import { getSherpaEngine, isSherpaReady } from "../stt/sherpa-streaming";
 import { applyCorrections } from "../pipeline/correct";
 import { computeWer, computeAggregateWer, formatWer, WerResult } from "./wer";
 import { TEST_RECORDINGS, PROSE_RECORDINGS, TestRecording } from "./test-data";
@@ -60,6 +61,52 @@ async function loadGroundTruth(path: string): Promise<string> {
   const content = await FileSystem.readAsStringAsync(`file://${plainPath}`);
   const data = JSON.parse(content);
   return data.reference;
+}
+
+/**
+ * Transcribe a WAV file through the streaming engine by feeding audio chunks.
+ * Returns the final transcription text.
+ */
+async function transcribeFileStreaming(audioFile: string): Promise<string> {
+  const engine = getSherpaEngine();
+  if (!engine) throw new Error("Streaming engine not ready");
+
+  // Read WAV as base64, decode to samples
+  const audioB64 = await FileSystem.readAsStringAsync(audioFile, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const raw = Uint8Array.from(
+    atob(audioB64).split("").map((c: string) => c.charCodeAt(0))
+  );
+
+  // Skip WAV header (44 bytes for standard, some files have 78), find 'data' chunk
+  let dataOffset = 44;
+  for (let i = 0; i < Math.min(raw.length, 200); i++) {
+    if (raw[i] === 0x64 && raw[i+1] === 0x61 && raw[i+2] === 0x74 && raw[i+3] === 0x61) { // "data"
+      dataOffset = i + 8; // skip "data" + 4-byte size
+      break;
+    }
+  }
+
+  // Convert int16 to float32
+  const samples: number[] = [];
+  for (let i = dataOffset; i < raw.length - 1; i += 2) {
+    const int16 = raw[i] | (raw[i + 1] << 8);
+    const signed = int16 > 32767 ? int16 - 65536 : int16;
+    samples.push(signed / 32768);
+  }
+
+  // Feed to streaming engine in 1-second chunks
+  const stream = await engine.createStream();
+  const chunkSize = 16000;
+  for (let i = 0; i < samples.length; i += chunkSize) {
+    const chunk = samples.slice(i, Math.min(i + chunkSize, samples.length));
+    await stream.processAudioChunk(Array.from(chunk), 16000);
+  }
+  await stream.inputFinished();
+  const result = await stream.getResult();
+  await stream.release();
+  return result.text;
 }
 
 /**
@@ -199,6 +246,34 @@ export async function runBenchmark(): Promise<BenchmarkReport> {
   console.log(`[VoxBench] Prose WER (raw): ${(proseRaw.wer * 100).toFixed(1)}%`);
   console.log(`[VoxBench] Prose WER (corrected): ${(proseCorrected.wer * 100).toFixed(1)}%`);
   console.log(`[VoxBench] Spike baseline: 44.9% raw → 42.3% corrected (whisper-large-v3 on Mac)`);
+
+  // ── Streaming benchmark (if engine is ready) ──
+  if (isSherpaReady()) {
+    console.log(`[VoxBench] === STREAMING BENCHMARK ===`);
+    for (const rec of TEST_RECORDINGS) {
+      const audioInfo = await FileSystem.getInfoAsync(rec.audioFile);
+      if (!audioInfo.exists) continue;
+
+      let reference = "";
+      try { reference = await loadGroundTruth(rec.groundTruthFile); } catch { continue; }
+
+      try {
+        const startMs = Date.now();
+        const rawText = await transcribeFileStreaming(rec.audioFile);
+        const inferenceMs = Date.now() - startMs;
+
+        const corrected = applyCorrections(rawText.toLowerCase().trim());
+        const rawWer = computeWer(reference, rawText);
+        const correctedWer = computeWer(reference, corrected.text.trim());
+
+        console.log(`[VoxBench] STREAM ${rec.id}: ${inferenceMs}ms, raw WER=${(rawWer.wer * 100).toFixed(1)}%, corrected WER=${(correctedWer.wer * 100).toFixed(1)}%`);
+      } catch (e: any) {
+        console.warn(`[VoxBench] STREAM ${rec.id}: error: ${e?.message?.slice(0, 100)}`);
+      }
+    }
+  } else {
+    console.log(`[VoxBench] Streaming engine not ready, skipping streaming benchmark`);
+  }
 
   return report;
 }

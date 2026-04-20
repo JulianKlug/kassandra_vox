@@ -127,19 +127,35 @@ def create_offline_recognizer(model_dir, model_type, num_threads=4):
     return recognizer
 
 
-def create_streaming_recognizer(model_dir, model_type, num_threads=4):
+def create_streaming_recognizer(model_dir, model_type, num_threads=4, hotwords_file=None, hotwords_score=2.5):
     """Create a sherpa-onnx online (streaming) recognizer."""
     import sherpa_onnx
 
     model_dir = Path(model_dir)
 
+    kwargs = {}
+    if hotwords_file:
+        kwargs["hotwords_file"] = hotwords_file
+        kwargs["hotwords_score"] = hotwords_score
+        kwargs["decoding_method"] = "modified_beam_search"
+
     if model_type == "transducer":
+        # Find encoder/decoder/joiner files (may have long names like "encoder-epoch-29-avg-9.onnx")
+        def find_onnx(prefix):
+            # Prefer int8 quantized, fallback to fp32
+            for f in sorted(model_dir.glob(f"{prefix}*.int8.onnx")):
+                return str(f)
+            for f in sorted(model_dir.glob(f"{prefix}*.onnx")):
+                return str(f)
+            return str(model_dir / f"{prefix}.onnx")
+
         recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
-            encoder=str(model_dir / "encoder.onnx"),
-            decoder=str(model_dir / "decoder.onnx"),
-            joiner=str(model_dir / "joiner.onnx"),
+            encoder=find_onnx("encoder"),
+            decoder=find_onnx("decoder"),
+            joiner=find_onnx("joiner"),
             tokens=str(model_dir / "tokens.txt"),
             num_threads=num_threads,
+            **kwargs,
         )
     else:
         print(f"Streaming not supported for model type: {model_type}")
@@ -167,7 +183,7 @@ def transcribe_offline(recognizer, audio_path):
     stream.accept_waveform(sample_rate, samples)
 
     recognizer.decode_stream(stream)
-    return stream.result.text
+    return recognizer.get_result(stream)
 
 
 def transcribe_streaming(recognizer, audio_path, chunk_duration_s=0.5):
@@ -201,7 +217,11 @@ def transcribe_streaming(recognizer, audio_path, chunk_duration_s=0.5):
     while recognizer.is_ready(stream):
         recognizer.decode_stream(stream)
 
-    return stream.result.text
+    stream.input_finished()
+    while recognizer.is_ready(stream):
+        recognizer.decode_stream(stream)
+
+    return recognizer.get_result(stream)
 
 
 def compute_wer(reference, hypothesis):
@@ -426,6 +446,8 @@ def main():
                         help="Model type for sherpa-onnx")
     parser.add_argument("--model-id", help="Model ID for registry (e.g., nemo-ctc-fr-int8)")
     parser.add_argument("--streaming", action="store_true", help="Evaluate as streaming model")
+    parser.add_argument("--hotwords", help="Path to hotwords file for contextual biasing (streaming only)")
+    parser.add_argument("--hotwords-score", type=float, default=2.5, help="Boost score for hotwords (default: 2.5)")
     parser.add_argument("--num-threads", type=int, default=4, help="Number of inference threads")
     parser.add_argument("--update-docs", action="store_true", help="Regenerate MODEL_EVAL_RESULTS.md from registry")
     parser.add_argument("--update-registry", action="store_true", default=True,
@@ -471,7 +493,10 @@ def main():
     load_start = time.time()
     try:
         if args.streaming:
-            recognizer = create_streaming_recognizer(model_dir, args.model_type, args.num_threads)
+            recognizer = create_streaming_recognizer(
+                model_dir, args.model_type, args.num_threads,
+                hotwords_file=args.hotwords, hotwords_score=args.hotwords_score,
+            )
         else:
             recognizer = create_offline_recognizer(model_dir, args.model_type, args.num_threads)
     except Exception as e:
