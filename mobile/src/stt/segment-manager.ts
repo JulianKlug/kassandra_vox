@@ -11,7 +11,7 @@
 
 export const SAMPLE_RATE = 16000;
 export const MIN_PASS_INTERVAL_MS = 5_000;
-export const MIN_AUDIO_SAMPLES = SAMPLE_RATE * 3; // 3 seconds
+export const MIN_AUDIO_SAMPLES = SAMPLE_RATE * 1; // 1 second (medical utterances can be short)
 export const MAX_NO_PASS_MS = 30_000;
 export const MAX_SAMPLES_PER_SEGMENT = SAMPLE_RATE * 60; // 60 seconds cap
 

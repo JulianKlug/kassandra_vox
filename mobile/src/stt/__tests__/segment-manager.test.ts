@@ -108,7 +108,7 @@ describe("shouldTriggerOfflinePass", () => {
 
   test("returns false when not enough audio", () => {
     const seg = createSegment(0);
-    seg.audioSamples = new Array(SAMPLE_RATE * 2).fill(0.1); // 2s, need 3s
+    seg.audioSamples = new Array(SAMPLE_RATE * 0.5).fill(0.1); // 0.5s, need 1s
     const now = 100_000;
     const lastPassTime = 0;
     expect(shouldTriggerOfflinePass(seg, lastPassTime, now)).toBe(false);
