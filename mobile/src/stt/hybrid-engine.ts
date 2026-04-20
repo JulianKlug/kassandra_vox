@@ -19,7 +19,7 @@ import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 import type { SttStream } from "react-native-sherpa-onnx/stt";
 import { getSherpaEngine } from "./sherpa-streaming";
 import { transcribeFileOffline, isWhisperReady, resetOfflineEngine } from "./whisper-offline";
-import { applyCorrections } from "../pipeline/correct";
+import { applyCorrections, applyCorrectionsWithValidation } from "../pipeline/correct";
 import {
   createSegment,
   buildTranscript,
@@ -108,7 +108,9 @@ export async function startHybridTranscription(
         console.log(`[vox] Retry raw #${seg.index}: "${rawText.slice(0, 80)}"`);
       }
 
-      const corrected = applyCorrections(rawText.toLowerCase().trim());
+      // Use CamemBERT-validated corrections for offline pass (async, higher quality)
+      // Falls back to standard corrections if CamemBERT isn't loaded
+      const corrected = await applyCorrectionsWithValidation(rawText.toLowerCase().trim());
       const result = corrected.text.trim();
 
       if (result) {
