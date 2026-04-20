@@ -47,13 +47,24 @@ export interface SherpaRealtimeHandle {
 let engine: StreamingSttEngine | null = null;
 
 /**
- * Ensure the French model is downloaded and extracted.
- * Returns the local filesystem path to the model directory.
+ * Ensure the French model is available.
+ * Checks local adb-pushed path first (for dev/emulator), then downloads.
  */
 export async function ensureFrenchModel(
   onProgress?: (p: SherpaDownloadProgress) => void
 ): Promise<string> {
-  // Refresh the model registry from GitHub releases so the ID is known
+  // Try local model first (pushed via adb for dev/emulator testing)
+  const localPath = `/data/local/tmp/${FRENCH_MODEL_ID}`;
+  try {
+    const FileSystem = require("expo-file-system/legacy");
+    const info = await FileSystem.getInfoAsync(`file://${localPath}/tokens.txt`);
+    if (info.exists) {
+      console.log(`[vox] Using local streaming model at ${localPath}`);
+      return localPath;
+    }
+  } catch {}
+
+  // Download from registry
   await refreshModelsByCategory(ModelCategory.Stt, { forceRefresh: false });
 
   const result = await ensureModelByCategory(ModelCategory.Stt, FRENCH_MODEL_ID, {

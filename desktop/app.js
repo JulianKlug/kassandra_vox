@@ -235,8 +235,11 @@ function handleAppMessage(msg) {
     case "transcript":
     case "sync-response":
       transcript = msg.text || "";
-      // Don't overwrite the DOM while the doctor is editing
-      if (!isEditing) renderTranscript();
+      // Don't touch the DOM while the doctor's caret is in the text.
+      // The variable updates (no data loss), DOM catches up on blur.
+      if (!isEditing && document.activeElement !== transcriptArea) {
+        renderTranscript();
+      }
       break;
   }
 }
@@ -374,28 +377,44 @@ roomInput.addEventListener("keydown", (e) => {
 });
 
 // ── Editing ──
+// Detect actual typing (not just focus/click) via `input` event.
+// Auto-resume incoming updates after 2s of no typing.
 
-transcriptArea.addEventListener("focus", () => {
-  isEditing = true;
-  // Remove the blinking cursor while editing (doctor uses real cursor)
-  const cursor = transcriptArea.querySelector(".cursor");
-  if (cursor) cursor.remove();
+let editIdleTimer = null;
+
+transcriptArea.addEventListener("input", () => {
+  if (!isEditing) {
+    isEditing = true;
+    // Remove the blinking cursor while editing (doctor uses real cursor)
+    const cursor = transcriptArea.querySelector(".cursor");
+    if (cursor) cursor.remove();
+  }
+  // Reset idle timer on every keystroke
+  if (editIdleTimer) clearTimeout(editIdleTimer);
+  editIdleTimer = setTimeout(finishEditing, 500);
 });
 
-transcriptArea.addEventListener("blur", () => {
+function finishEditing() {
+  if (!isEditing) return;
   isEditing = false;
-  // Read the edited text from the DOM
+  editIdleTimer = null;
+  // Read the edited text from the DOM and send correction.
+  // Do NOT re-render here — that would destroy the caret position.
+  // The blur handler re-renders when the doctor clicks away.
   const editedText = transcriptArea.innerText.trim();
   if (editedText && editedText !== transcript) {
     transcript = editedText;
-    // Send correction to phone
     sendEncrypted(JSON.stringify({
       type: "correction",
       text: editedText,
       ts: Date.now(),
     }));
   }
-  // Re-render to restore cursor animation
+}
+
+// On blur: finalize any edit, then always re-render to catch up with latest transcript
+transcriptArea.addEventListener("blur", () => {
+  finishEditing();
   renderTranscript();
 });
 
