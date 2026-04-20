@@ -9,6 +9,7 @@
  */
 
 import correctionsData from "./corrections.json";
+import { applyPhoneticCorrections } from "./phonetic";
 
 export interface CorrectionEntry {
   pattern: string;
@@ -138,6 +139,21 @@ export function applyCorrections(
 
     if (fuzzyApplied) {
       text = newWords.join(" ");
+    }
+  }
+
+  // Layer 3: Phonetic matching for words not caught by the dictionary
+  const phonetic = applyPhoneticCorrections(text);
+  if (phonetic.matches.length > 0) {
+    text = phonetic.text;
+    for (const m of phonetic.matches) {
+      applied.push({
+        pattern: m.original,
+        correction: m.match,
+        method: "fuzzy",
+        editDistance: m.editDist,
+        original: m.original,
+      });
     }
   }
 
