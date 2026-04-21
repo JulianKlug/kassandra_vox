@@ -51,3 +51,4 @@ spike/data/sample_text_recordings.docx
 *.m4a
 *.ogg
 *.flac
+models/

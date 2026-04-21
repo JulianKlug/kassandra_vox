@@ -39,7 +39,15 @@ export async function initCamembert(): Promise<void> {
 }
 
 async function doInit(): Promise<void> {
-  const { InferenceSession } = require("onnxruntime-react-native");
+  let InferenceSession: any;
+  try {
+    InferenceSession = require("onnxruntime-react-native").InferenceSession;
+  } catch (e: any) {
+    throw new Error(`onnxruntime-react-native not available: ${e?.message}`);
+  }
+  if (!InferenceSession) {
+    throw new Error("onnxruntime-react-native native module not linked");
+  }
 
   // Check for local model first (pushed via adb for dev)
   const localPath = "/data/local/tmp/camembert-bio";
@@ -144,7 +152,12 @@ function tokenize(text: string): number[] {
 export async function sentenceScore(text: string): Promise<number> {
   if (!session) throw new Error("CamemBERT not loaded");
 
-  const { Tensor } = require("onnxruntime-react-native");
+  let Tensor: any;
+  try {
+    Tensor = require("onnxruntime-react-native").Tensor;
+  } catch {
+    throw new Error("onnxruntime not available");
+  }
   const tokenIds = tokenize(text);
   const n = tokenIds.length;
   if (n <= 2) return 0; // just BOS/EOS
