@@ -117,7 +117,7 @@ Keeping current streaming model (sherpa-onnx-streaming-zipformer-fr-2023-04-14-m
 
 2. **French phonetic matching (Layer 3):** Soundex-FR or phonetic hash to match STT errors to medical terms. Handles "NORDLIN" → "noradrénaline" by phonetic similarity. Expected 5-15% WER reduction.
 
-3. **CamemBERT-bio scoring (Layer 4):** French biomedical BERT (110 MB) for perplexity-based disambiguation. Only if Layers 2-3 aren't enough.
+3. **~~CamemBERT-bio scoring (Layer 4):~~** Tested and rejected. See Issue #6 below.
 
 4. **On-device LLM correction:** Small LLM (1-2 GB, e.g., Qwen 2.5 1.5B) to rewrite STT output. Highest quality ceiling but heaviest approach.
 
@@ -138,3 +138,49 @@ The hybrid engine segments audio at speech pauses (5-30s segments), so most segm
 
 ### Fix needed
 Add audio chunking in the offline pass: if segment > 35 seconds, split into 30-second chunks with 5-second overlap, transcribe each, deduplicate overlap, concatenate.
+
+## 6. CamemBERT-bio on-device: too slow and hurts accuracy
+**Date:** 2026-04-21
+**Symptom:** CamemBERT-bio (French biomedical BERT, 130 MB INT8 ONNX) was implemented as a correction validator using pseudo-log-likelihood scoring. It is both too slow for real-time use and makes accuracy worse.
+**Severity:** Closed — approach abandoned.
+
+### What we built
+Custom Kotlin native module (`CamembertModule`) that reuses sherpa-onnx's bundled ONNX Runtime (`libonnxruntime.so`). No extra native libraries. The module exposes `loadModel()`, `scoreMaskedPosition()`, and `release()` to JS. The log-softmax computation runs on the native side so only a single double crosses the bridge per forward pass.
+
+Files: `CamembertHelper.kt`, `CamembertModule.kt`, `CamembertPackage.kt`, `camembert.ts`.
+
+### Latency results
+
+Pseudo-log-likelihood scoring requires N forward passes per sentence (one per masked token).
+
+| Device | Short (5 tokens) | Medium (12 tokens) | Per forward pass |
+|--------|-------------------|---------------------|------------------|
+| Emulator (x86 host CPU) | 232ms total, 46ms/pass | 2,449ms total, 204ms/pass | 46-204ms |
+| Samsung S22 (Snapdragon 8 Gen 1) | 718ms total, 144ms/pass | 6,616ms total, 551ms/pass | 144-551ms |
+
+S22 is 3x slower than emulator because the emulator runs on the Mac's native x86 CPU while the S22 runs ARM with CPU-only ORT (no NNAPI optimization for this model).
+
+A typical correction validation requires 2 sentence scores (original + corrected). For a 15-word medical sentence (~20 subword tokens), that's ~40 forward passes = **22 seconds on S22**. With 2-3 corrections per dictation segment, CamemBERT adds **45-65 seconds** to each offline pass.
+
+### Accuracy results
+
+CamemBERT-bio **rejected correct corrections** in all observed cases:
+
+| STT output | Phonetic correction | CamemBERT decision | Correct? |
+|------------|---------------------|---------------------|----------|
+| "pouts perçus" | "pouls perçus" (pulse) | Rejected (delta=-0.05) | WRONG — pouls is correct |
+| "nor ine" | "noradrénaline" | Rejected (delta=-0.02) | WRONG — noradrénaline is correct |
+| sodium → sodium | (identity) | Rejected (delta=0.00) | N/A |
+| vergule → metformine | | Rejected (delta=-0.02) | Correct rejection (wrong context) |
+
+**Root cause:** The STT output is so garbled that the surrounding context doesn't help the language model. CamemBERT was trained on well-formed biomedical French text. When the input sentence contains multiple misspellings, the model has no good signal to prefer the corrected word. It often scores the garbled version higher because the subword tokens are more "expected" given the equally garbled neighbors.
+
+This matches our desktop Python benchmark which showed only marginal improvement (52.2% → 50.6% WER). The 5/5 accuracy on clean hand-crafted test sentences didn't transfer to real STT output.
+
+### Decision
+CamemBERT-bio on-device is not viable for this use case. The code remains in the codebase (graceful degradation: if model not loaded, all corrections accepted) but is effectively disabled — the model files won't be shipped.
+
+### What would make it work
+1. **Much faster inference:** NNAPI/GPU delegate for ORT, or a distilled CamemBERT (6 layers instead of 12). Target: <20ms per forward pass.
+2. **Better STT quality first:** If raw WER drops to <25%, the context around each correction would be clean enough for the language model to help.
+3. **Different scoring approach:** Instead of PLL (N passes per sentence), use a single-pass approach like computing the loss on the masked position only. Would need model architecture changes.

@@ -78,25 +78,6 @@ export async function ensureFrenchModel(
 }
 
 /**
- * Write the medical hotwords file to device storage and return the plain path.
- * Hotwords bias the beam search decoder toward medical vocabulary.
- */
-async function writeHotwordsFile(): Promise<string | undefined> {
-  try {
-    const FileSystem = require("expo-file-system/legacy");
-    const { HOTWORDS_CONTENT } = require("../pipeline/hotwords");
-    const uri = `${FileSystem.documentDirectory}hotwords.txt`;
-    await FileSystem.writeAsStringAsync(uri, HOTWORDS_CONTENT);
-    const plainPath = uri.replace(/^file:\/\//, "");
-    console.log(`[vox] Hotwords written: ${plainPath}`);
-    return plainPath;
-  } catch (e: any) {
-    console.warn(`[vox] Hotwords not available: ${e?.message}`);
-  }
-  return undefined;
-}
-
-/**
  * Initialize the streaming STT engine with the French model.
  */
 export async function initSherpaEngine(modelPath: string): Promise<void> {
@@ -107,9 +88,6 @@ export async function initSherpaEngine(modelPath: string): Promise<void> {
 
   console.log(`[vox] initSherpaEngine: modelPath=${modelPath}`);
 
-  // Write hotwords to device storage for contextual biasing
-  const hotwordsPath = await writeHotwordsFile();
-
   try {
     engine = await createStreamingSTT({
       modelPath: fileModelPath(modelPath),
@@ -117,15 +95,13 @@ export async function initSherpaEngine(modelPath: string): Promise<void> {
       numThreads: 4,
       enableEndpoint: true,
       debug: true,
-      hotwordsFile: hotwordsPath,
-      hotwordsScore: 2.5,
       endpointConfig: {
         rule1: { mustContainNonSilence: false, minTrailingSilence: 2.4, minUtteranceLength: 0 },
         rule2: { mustContainNonSilence: true, minTrailingSilence: 1.2, minUtteranceLength: 0 },
         rule3: { mustContainNonSilence: false, minTrailingSilence: 0, minUtteranceLength: 20 },
       },
     });
-    console.log(`[vox] Sherpa engine initialized successfully${hotwordsPath ? " (with hotwords)" : ""}`);
+    console.log(`[vox] Sherpa engine initialized successfully`);
   } catch (e: any) {
     console.error(`[vox] Sherpa engine init failed: ${e?.message ?? e}`);
     engine = null;

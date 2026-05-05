@@ -39,7 +39,6 @@ import {
   HybridUpdate,
 } from "./src/stt/hybrid-engine";
 import { applyCorrections } from "./src/pipeline/correct";
-import { initCamembert } from "./src/pipeline/camembert";
 import { connectToRelay, RelayHandle, RelayState } from "./src/relay/relay-client";
 import { generateRoomCode } from "./src/relay/room-codes";
 
@@ -204,11 +203,6 @@ export default function App() {
       await initOfflineEngine();
       setOfflineReady(true);
       console.log("[vox] Offline engine ready (background)");
-
-      // Initialize CamemBERT-bio for correction validation (non-blocking)
-      initCamembert().catch((e) => {
-        console.log(`[vox] CamemBERT-bio not available (non-fatal): ${e?.message}`);
-      });
     } catch (e: any) {
       // Non-fatal: streaming still works without offline pass
       console.warn(`[vox] Offline engine init failed (non-fatal): ${e?.message ?? e}`);

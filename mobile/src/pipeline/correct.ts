@@ -10,7 +10,6 @@
 
 import correctionsData from "./corrections.json";
 import { applyPhoneticCorrections } from "./phonetic";
-import { isCamembertReady, validateCorrection } from "./camembert";
 
 export interface CorrectionEntry {
   pattern: string;
@@ -171,48 +170,3 @@ export function applyCorrections(
   return { text, applied };
 }
 
-/**
- * Apply corrections with CamemBERT-bio validation (async).
- *
- * Runs the standard correction pipeline, then validates each phonetic
- * correction with CamemBERT-bio. Corrections that make the sentence
- * less natural are reverted. Dictionary corrections are always kept
- * (they're hand-curated and trusted).
- */
-export async function applyCorrectionsWithValidation(
-  inputText: string,
-  dict: CorrectionEntry[] = corrections,
-  options: CorrectionOptions = {}
-): Promise<CorrectionResult> {
-  // Run standard pipeline first
-  const result = applyCorrections(inputText, dict, options);
-
-  // If CamemBERT isn't ready or no phonetic corrections were made, return as-is
-  if (!isCamembertReady()) return result;
-
-  const phoneticCorrections = result.applied.filter(a => a.method === "fuzzy" && a.original);
-  if (phoneticCorrections.length === 0) return result;
-
-  // Validate each phonetic correction
-  let text = result.text;
-  const validated: AppliedCorrection[] = result.applied.filter(a => a.method === "exact");
-
-  for (const corr of phoneticCorrections) {
-    const withCorrection = text;
-    const withoutCorrection = text.replace(
-      new RegExp(escapeRegex(corr.correction), "gi"),
-      corr.original!
-    );
-
-    const shouldKeep = await validateCorrection(withoutCorrection, withCorrection);
-    if (shouldKeep) {
-      validated.push(corr);
-    } else {
-      // Revert this correction
-      text = withoutCorrection;
-      console.log(`[vox] CamemBERT rejected: "${corr.original}" → "${corr.correction}"`);
-    }
-  }
-
-  return { text, applied: validated };
-}
