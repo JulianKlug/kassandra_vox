@@ -11,9 +11,26 @@
 
 export const SAMPLE_RATE = 16000;
 export const MIN_PASS_INTERVAL_MS = 5_000;
-export const MIN_AUDIO_SAMPLES = SAMPLE_RATE * 1; // 1 second (medical utterances can be short)
+// Offline pass regresses worst on short clips (multilingual CTC misfires,
+// list-style segments). Streaming text is good enough on short utterances.
+export const MIN_AUDIO_SAMPLES = SAMPLE_RATE * 3; // 3 seconds
 export const MAX_NO_PASS_MS = 30_000;
 export const MAX_SAMPLES_PER_SEGMENT = SAMPLE_RATE * 60; // 60 seconds cap
+
+// Offline-pass quality gates: reject offline output that looks structurally
+// wrong before it overrides streaming text. See docs/specs/offline-pass-quality-gate.md
+export const FRENCH_STOPWORDS = new Set([
+  "le", "la", "les", "un", "une", "des", "de", "du",
+  "et", "ou", "à", "au", "aux", "en", "dans", "sur",
+  "pour", "par", "avec", "sans", "est", "sont", "n'",
+  "ne", "pas", "plus", "que", "qui", "ce", "cette",
+  "ces", "je", "tu", "il", "elle", "on", "nous", "vous",
+  "ils", "elles", "se", "sa", "son", "ses", "mon", "ma",
+  "mes", "lui", "leur", "leurs", "y",
+]);
+export const STOPWORD_CHECK_MIN_WORDS = 5;
+export const LENGTH_RATIO_MIN = 0.5;
+export const LENGTH_RATIO_MAX = 2.0;
 
 export interface Segment {
   index: number;
@@ -22,13 +39,70 @@ export interface Segment {
   audioSamples: number[];
 }
 
+export interface OfflineGateDecision {
+  text: string;
+  source: "offline" | "streaming-fallback";
+  rejectionReason?: "empty" | "no-french-stopword" | "length-mismatch";
+}
+
 export function createSegment(index: number): Segment {
   return { index, streamingText: "", offlineText: null, audioSamples: [] };
 }
 
 /**
+ * Check that text contains at least one French stopword. Catches the
+ * multilingual-CTC misfire mode where the model falls back to en/de/es phonemes.
+ *
+ * Short medical-term lists ("noradrénaline dobutamine") legitimately contain no
+ * stopwords, so the check is skipped under STOPWORD_CHECK_MIN_WORDS.
+ */
+export function hasFrenchStopword(text: string): boolean {
+  const tokens = text
+    .toLowerCase()
+    .split(/[\s,.;:!?'"()]+/)
+    .filter((t) => t.length > 0);
+  if (tokens.length < STOPWORD_CHECK_MIN_WORDS) return true;
+  return tokens.some((t) => FRENCH_STOPWORDS.has(t));
+}
+
+/**
+ * Check that offline word count is within [0.5x, 2.0x] of streaming.
+ * Catches truncations and hallucination loops.
+ */
+export function isLengthRatioOk(streaming: string, offline: string): boolean {
+  const streamingWords = streaming.trim().split(/\s+/).filter(Boolean).length;
+  const offlineWords = offline.trim().split(/\s+/).filter(Boolean).length;
+  if (streamingWords === 0) return true;
+  const ratio = offlineWords / streamingWords;
+  return ratio >= LENGTH_RATIO_MIN && ratio <= LENGTH_RATIO_MAX;
+}
+
+/**
+ * Decide whether offline text should override streaming text. Runs three gates:
+ * empty → French stopword check → length-ratio sanity check.
+ */
+export function gateOfflineText(
+  streamingText: string,
+  offlineText: string | null
+): OfflineGateDecision {
+  const offline = offlineText?.trim() ?? "";
+  const streaming = streamingText.trim();
+
+  if (!offline) {
+    return { text: streaming, source: "streaming-fallback", rejectionReason: "empty" };
+  }
+  if (!hasFrenchStopword(offline)) {
+    return { text: streaming, source: "streaming-fallback", rejectionReason: "no-french-stopword" };
+  }
+  if (!isLengthRatioOk(streaming, offline)) {
+    return { text: streaming, source: "streaming-fallback", rejectionReason: "length-mismatch" };
+  }
+  return { text: offline, source: "offline" };
+}
+
+/**
  * Build the full transcript from finished segments + current in-progress segment.
- * Prefers offline text when available, falls back to streaming text.
+ * Prefers offline text when it passes the quality gates, falls back to streaming.
  */
 export function buildTranscript(
   finishedSegments: Segment[],
@@ -36,10 +110,13 @@ export function buildTranscript(
 ): string {
   const parts: string[] = [];
   for (const seg of finishedSegments) {
-    // Use offline text only if it's non-empty. An empty string from a
-    // failed offline pass should NOT replace good streaming text.
-    const t = (seg.offlineText && seg.offlineText.trim()) || seg.streamingText;
-    if (t.trim()) parts.push(t.trim());
+    const decision = gateOfflineText(seg.streamingText, seg.offlineText);
+    if (decision.text) parts.push(decision.text);
+    if (decision.rejectionReason && decision.rejectionReason !== "empty") {
+      console.log(
+        `[vox] Offline rejected (${decision.rejectionReason}) seg #${seg.index}: "${seg.offlineText?.slice(0, 60)}"`
+      );
+    }
   }
   const current = currentSegment.streamingText;
   if (current.trim()) parts.push(current.trim());

@@ -6,6 +6,9 @@ import {
   segmentDurationSec,
   samplesToWav,
   uint8ToBase64,
+  hasFrenchStopword,
+  isLengthRatioOk,
+  gateOfflineText,
   SAMPLE_RATE,
   MIN_PASS_INTERVAL_MS,
   MIN_AUDIO_SAMPLES,
@@ -42,13 +45,12 @@ describe("buildTranscript", () => {
   test("prefers offline text over streaming text for finished segments", () => {
     const seg: Segment = {
       index: 0,
-      streamingText: "rough text",
-      offlineText: "accurate text",
+      streamingText: "le patient arrive aux urgences pour douleur",
+      offlineText: "le patient arrive aux urgences pour douleurs",
       audioSamples: [],
     };
     const result = buildTranscript([seg], createSegment(1));
-    expect(result).toBe("accurate text");
-    expect(result).not.toContain("rough");
+    expect(result).toBe("le patient arrive aux urgences pour douleurs");
   });
 
   test("falls back to streaming text when offline is null", () => {
@@ -108,10 +110,24 @@ describe("shouldTriggerOfflinePass", () => {
 
   test("returns false when not enough audio", () => {
     const seg = createSegment(0);
-    seg.audioSamples = new Array(SAMPLE_RATE * 0.5).fill(0.1); // 0.5s, need 1s
+    seg.audioSamples = new Array(SAMPLE_RATE * 0.5).fill(0.1); // 0.5s, need 3s
     const now = 100_000;
     const lastPassTime = 0;
     expect(shouldTriggerOfflinePass(seg, lastPassTime, now)).toBe(false);
+  });
+
+  test("returns false for 2.5s of audio (under 3s threshold)", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 2.5).fill(0.1);
+    const now = 100_000;
+    expect(shouldTriggerOfflinePass(seg, 0, now)).toBe(false);
+  });
+
+  test("returns true for exactly 3s of audio", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 3).fill(0.1);
+    const now = 100_000;
+    expect(shouldTriggerOfflinePass(seg, 0, now)).toBe(true);
   });
 
   test("returns true when enough time and audio", () => {
@@ -136,6 +152,123 @@ describe("shouldTriggerOfflinePass", () => {
     const lastPassTime = 1000;
     const now = lastPassTime + MIN_PASS_INTERVAL_MS - 1;
     expect(shouldTriggerOfflinePass(seg, lastPassTime, now)).toBe(false);
+  });
+});
+
+// ── hasFrenchStopword ───────────────────────────────────
+
+describe("hasFrenchStopword", () => {
+  test("returns true for normal French sentence", () => {
+    expect(hasFrenchStopword("le patient arrive aux urgences")).toBe(true);
+  });
+
+  test("returns false for English with 5+ words", () => {
+    expect(hasFrenchStopword("the patient arrives in the emergency room")).toBe(false);
+  });
+
+  test("returns true for short medical list under threshold", () => {
+    expect(hasFrenchStopword("noradrénaline dobutamine")).toBe(true);
+  });
+
+  test("returns true for stopword-less single medical word", () => {
+    expect(hasFrenchStopword("hémodialyse")).toBe(true);
+  });
+
+  test("returns false for 5+ word non-French", () => {
+    expect(hasFrenchStopword("Dies ist ein deutscher Satz hier")).toBe(false);
+  });
+});
+
+// ── isLengthRatioOk ─────────────────────────────────────
+
+describe("isLengthRatioOk", () => {
+  test("returns true for similar lengths (10 vs 12 words)", () => {
+    const streaming = "one two three four five six seven eight nine ten";
+    const offline = "one two three four five six seven eight nine ten eleven twelve";
+    expect(isLengthRatioOk(streaming, offline)).toBe(true);
+  });
+
+  test("returns false for truncation (5 vs 20 words, ratio 0.25)", () => {
+    const streaming = new Array(20).fill("word").join(" ");
+    const offline = new Array(5).fill("word").join(" ");
+    expect(isLengthRatioOk(streaming, offline)).toBe(false);
+  });
+
+  test("returns false for hallucination (40 vs 10 words, ratio 4.0)", () => {
+    const streaming = new Array(10).fill("word").join(" ");
+    const offline = new Array(40).fill("word").join(" ");
+    expect(isLengthRatioOk(streaming, offline)).toBe(false);
+  });
+
+  test("returns true at boundaries (ratio = 0.5 exactly)", () => {
+    const streaming = new Array(10).fill("word").join(" ");
+    const offline = new Array(5).fill("word").join(" ");
+    expect(isLengthRatioOk(streaming, offline)).toBe(true);
+  });
+
+  test("returns true at boundaries (ratio = 2.0 exactly)", () => {
+    const streaming = new Array(5).fill("word").join(" ");
+    const offline = new Array(10).fill("word").join(" ");
+    expect(isLengthRatioOk(streaming, offline)).toBe(true);
+  });
+
+  test("returns true when streaming is empty", () => {
+    expect(isLengthRatioOk("", "anything goes here")).toBe(true);
+  });
+});
+
+// ── gateOfflineText ─────────────────────────────────────
+
+describe("gateOfflineText", () => {
+  test("empty offline returns streaming with reason 'empty'", () => {
+    const decision = gateOfflineText("le patient arrive", "");
+    expect(decision.text).toBe("le patient arrive");
+    expect(decision.source).toBe("streaming-fallback");
+    expect(decision.rejectionReason).toBe("empty");
+  });
+
+  test("null offline returns streaming with reason 'empty'", () => {
+    const decision = gateOfflineText("le patient arrive", null);
+    expect(decision.text).toBe("le patient arrive");
+    expect(decision.rejectionReason).toBe("empty");
+  });
+
+  test("offline failing stopword check returns streaming with reason 'no-french-stopword'", () => {
+    const decision = gateOfflineText(
+      "le patient arrive aux urgences",
+      "the patient arrives in the emergency room"
+    );
+    expect(decision.text).toBe("le patient arrive aux urgences");
+    expect(decision.source).toBe("streaming-fallback");
+    expect(decision.rejectionReason).toBe("no-french-stopword");
+  });
+
+  test("offline failing length check returns streaming with reason 'length-mismatch'", () => {
+    const streaming = new Array(20).fill("le").join(" ");
+    const offline = "le patient";
+    const decision = gateOfflineText(streaming, offline);
+    expect(decision.text).toBe(streaming);
+    expect(decision.source).toBe("streaming-fallback");
+    expect(decision.rejectionReason).toBe("length-mismatch");
+  });
+
+  test("all gates pass returns offline with no reason", () => {
+    const decision = gateOfflineText(
+      "le patient arrive aux urgences",
+      "le patient arrive aux urgences pour douleur"
+    );
+    expect(decision.text).toBe("le patient arrive aux urgences pour douleur");
+    expect(decision.source).toBe("offline");
+    expect(decision.rejectionReason).toBeUndefined();
+  });
+
+  test("short offline (under stopword threshold) passes the stopword gate", () => {
+    const decision = gateOfflineText(
+      "noradrénaline dobutamine",
+      "noradrénaline adrénaline"
+    );
+    expect(decision.source).toBe("offline");
+    expect(decision.text).toBe("noradrénaline adrénaline");
   });
 });
 
