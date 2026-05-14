@@ -33,6 +33,14 @@ import {
   MIN_AUDIO_SAMPLES,
   MAX_NO_PASS_MS,
 } from "./segment-manager";
+import {
+  createState,
+  enqueue,
+  dequeue,
+  writebackTarget,
+  onRotate,
+  QueueEntry,
+} from "./progressive-pass-state";
 
 export interface HybridUpdate {
   text: string;
@@ -72,25 +80,35 @@ export async function startHybridTranscription(
   let maxTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  // Offline pass serialization
-  let offlinePromise: Promise<void> | null = null;
-  let pendingSegment: Segment | null = null;
+  // Offline pass serialization — queue + writeback (see progressive-pass-state.ts).
+  // inFlightPromise is tracked here only so stop() can await drain.
+  const passState = createState();
+  let inFlightPromise: Promise<void> | null = null;
 
   function emit(source: "streaming" | "offline") {
     if (stopped) return;
     onUpdate({
       text: buildTranscript(finishedSegments, currentSegment),
       source,
-      offlineRunning: offlinePromise !== null,
+      offlineRunning: inFlightPromise !== null,
     });
   }
 
-  async function doOfflinePass(seg: Segment): Promise<void> {
-    if (!isWhisperReady()) return;
-    if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
+  function describeEntry(entry: QueueEntry): string {
+    return entry.kind === "progressive"
+      ? `progressive, mark=${entry.mark}s`
+      : "endpoint";
+  }
+
+  async function doOfflinePass(entry: QueueEntry): Promise<string | null> {
+    const seg = entry.seg;
+    if (!isWhisperReady()) return null;
+    if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return null;
 
     const durationS = segmentDurationSec(seg).toFixed(1);
-    console.log(`[vox] Offline pass #${seg.index}: ${durationS}s of audio, ${seg.audioSamples.length} samples`);
+    console.log(
+      `[vox] Offline pass #${seg.index} (${describeEntry(entry)}): ${durationS}s of audio, ${seg.audioSamples.length} samples`
+    );
 
     let wavPath: string | null = null;
     try {
@@ -112,13 +130,14 @@ export async function startHybridTranscription(
       const result = corrected.text.trim();
 
       if (result) {
-        seg.offlineText = result;
         console.log(`[vox] Offline #${seg.index}: "${result.slice(0, 80)}"`);
-      } else {
-        console.log(`[vox] Offline #${seg.index}: empty after retry, keeping streaming text`);
+        return result;
       }
+      console.log(`[vox] Offline #${seg.index}: empty after retry, keeping streaming text`);
+      return null;
     } catch (e: any) {
       console.warn(`[vox] Offline pass error: ${e?.message ?? e}`);
+      return null;
     } finally {
       lastPassTime = Date.now();
       if (wavPath) {
@@ -127,25 +146,41 @@ export async function startHybridTranscription(
     }
   }
 
-  function scheduleOfflinePass(seg: Segment) {
-    if (!isWhisperReady()) return;
-    if (seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
+  function applyResult(entry: QueueEntry, result: string | null) {
+    if (result == null) return;
+    const target = writebackTarget(entry.seg, currentSegment.index, finishedSegments);
+    if (target.target === "current") {
+      currentSegment.offlineText = result;
+    } else if (target.target === "finished") {
+      finishedSegments[target.i].offlineText = result;
+    }
+    // discard otherwise (a newer pass already won, or segment cleaned up)
+  }
 
-    if (offlinePromise) {
-      pendingSegment = seg;
+  function runEntry(entry: QueueEntry) {
+    passState.inFlight = entry;
+    inFlightPromise = doOfflinePass(entry)
+      .then((result) => {
+        applyResult(entry, result);
+        emit("offline");
+      })
+      .finally(() => {
+        passState.inFlight = null;
+        inFlightPromise = null;
+        const next = dequeue(passState);
+        if (next) runEntry(next);
+      });
+  }
+
+  function scheduleOfflinePass(entry: QueueEntry) {
+    if (!isWhisperReady()) return;
+    if (entry.seg.audioSamples.length < MIN_AUDIO_SAMPLES) return;
+
+    if (passState.inFlight) {
+      enqueue(passState, entry);
       return;
     }
-
-    offlinePromise = doOfflinePass(seg)
-      .then(() => emit("offline"))
-      .finally(() => {
-        offlinePromise = null;
-        if (pendingSegment) {
-          const next = pendingSegment;
-          pendingSegment = null;
-          scheduleOfflinePass(next);
-        }
-      });
+    runEntry(entry);
   }
 
   function tryOfflinePass() {
@@ -155,8 +190,9 @@ export async function startHybridTranscription(
     const toProcess = currentSegment;
     finishedSegments.push(toProcess);
     currentSegment = createSegment(toProcess.index + 1);
+    onRotate(passState);
 
-    scheduleOfflinePass(toProcess);
+    scheduleOfflinePass({ kind: "endpoint", seg: toProcess });
     resetMaxTimer();
   }
 
@@ -245,29 +281,32 @@ export async function startHybridTranscription(
       await pcm.stop();
       unsubData();
 
-      // Wait for any in-progress offline pass
-      if (offlinePromise) {
-        console.log("[vox] Waiting for in-progress offline pass...");
-        await offlinePromise;
+      // Drain the offline-pass queue. inFlightPromise resolves only after
+      // the .finally hook runs, which may schedule the next entry — so loop
+      // until both inFlight and queue are empty.
+      while (passState.inFlight || passState.queue.length > 0) {
+        if (inFlightPromise) {
+          console.log("[vox] Waiting for in-progress offline pass...");
+          await inFlightPromise;
+        }
       }
 
-      // Final offline pass on remaining audio
+      // Final offline pass on remaining audio in the still-open segment.
+      // Push to finishedSegments first so applyResult can route the result
+      // there via writebackTarget("finished").
       if (currentSegment.audioSamples.length >= MIN_AUDIO_SAMPLES && isWhisperReady()) {
-        finishedSegments.push(currentSegment);
-        await doOfflinePass(currentSegment);
+        const finalSeg = currentSegment;
+        finishedSegments.push(finalSeg);
+        currentSegment = createSegment(finalSeg.index + 1);
+        onRotate(passState);
+        scheduleOfflinePass({ kind: "endpoint", seg: finalSeg });
+        while (passState.inFlight || passState.queue.length > 0) {
+          if (inFlightPromise) await inFlightPromise;
+        }
       } else if (currentSegment.streamingText.trim()) {
-        finishedSegments.push(currentSegment);
-      }
-
-      // Replace currentSegment with an empty one so buildTranscript
-      // doesn't double-count the segment we just pushed to finishedSegments.
-      currentSegment = createSegment(currentSegment.index + 1);
-
-      // Drain pending queue
-      if (pendingSegment) {
-        finishedSegments.push(pendingSegment);
-        await doOfflinePass(pendingSegment);
-        pendingSegment = null;
+        const finalSeg = currentSegment;
+        finishedSegments.push(finalSeg);
+        currentSegment = createSegment(finalSeg.index + 1);
       }
 
       // Emit final transcript
