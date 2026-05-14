@@ -9,16 +9,19 @@
 
 import { runIntegrationTests, TestResult } from "./test-cases";
 import { runBenchmark, BenchmarkReport } from "./benchmark";
+import { runSweep, printSweepSummary, ScheduleResult } from "./progressive-passes-sweep";
 import { setupTestData } from "./test-data";
 
 export interface TestHarnessResults {
   integration: TestResult[];
   benchmark: BenchmarkReport | null;
+  sweep: ScheduleResult[] | null;
   summary: {
     integrationPassed: number;
     integrationFailed: number;
     integrationTotal: number;
     benchmarkCompleted: boolean;
+    sweepCompleted: boolean;
   };
 }
 
@@ -50,6 +53,7 @@ export async function runTestHarness(): Promise<TestHarnessResults> {
   // Phase 2: Benchmark (only if core engines initialized successfully)
   let benchmark: BenchmarkReport | null = null;
   const enginesOk = integration.find(r => r.name === "offline_engine_init")?.pass;
+  const streamingOk = integration.find(r => r.name === "streaming_engine_init")?.pass;
 
   if (enginesOk) {
     console.log("[VoxTest]");
@@ -63,6 +67,21 @@ export async function runTestHarness(): Promise<TestHarnessResults> {
     console.log("[VoxTest] Skipping benchmark: engines not initialized");
   }
 
+  // Phase 3: Progressive-passes sweep (needs both engines for realistic gate baseline)
+  let sweep: ScheduleResult[] | null = null;
+  if (enginesOk && streamingOk) {
+    console.log("[VoxTest]");
+    console.log("[VoxTest] --- Progressive Passes Sweep ---");
+    try {
+      sweep = await runSweep();
+      printSweepSummary(sweep);
+    } catch (e: any) {
+      console.error(`[VoxTest] Sweep failed: ${e?.message ?? e}`);
+    }
+  } else {
+    console.log("[VoxTest] Skipping sweep: both offline + streaming engines required");
+  }
+
   // Summary
   console.log("[VoxTest]");
   console.log("[VoxTest] ====================================");
@@ -73,16 +92,21 @@ export async function runTestHarness(): Promise<TestHarnessResults> {
     console.log(`[VoxTest] Avg inference: ${benchmark.aggregate.avgInferenceMs.toFixed(0)}ms`);
     console.log(`[VoxTest] WER (corrected): ${(benchmark.aggregate.offlineCorrectedWer * 100).toFixed(1)}%`);
   }
+  if (sweep) {
+    console.log(`[VoxTest] Sweep: ${sweep.length} schedules evaluated`);
+  }
   console.log("[VoxTest] ====================================");
 
   return {
     integration,
     benchmark,
+    sweep,
     summary: {
       integrationPassed: passed,
       integrationFailed: failed,
       integrationTotal: integration.length,
       benchmarkCompleted: benchmark !== null,
+      sweepCompleted: sweep !== null,
     },
   };
 }

@@ -67,7 +67,7 @@ async function loadGroundTruth(path: string): Promise<string> {
  * Transcribe a WAV file through the streaming engine by feeding audio chunks.
  * Returns the final transcription text.
  */
-async function transcribeFileStreaming(audioFile: string): Promise<string> {
+export async function transcribeFileStreaming(audioFile: string): Promise<string> {
   const engine = getSherpaEngine();
   if (!engine) throw new Error("Streaming engine not ready");
 
