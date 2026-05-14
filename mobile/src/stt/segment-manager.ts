@@ -22,11 +22,15 @@ export const MAX_SAMPLES_PER_SEGMENT = SAMPLE_RATE * 60; // 60 seconds cap
 // finished. Marks are in seconds of buffered audio. The endpoint-triggered
 // pass (on segment close) always runs independently of this schedule.
 //
-// Placeholder values; tuned from the sweep harness on the 10 spike
-// recordings before merge (docs/specs/progressive-offline-passes.md).
+// Picked from the emulator sweep over the 10 spike recordings: the [5, 10, 15]
+// schedule (+ endpoint) gave a 10× improvement in time-to-first-gate-pass
+// (69ms vs 739ms baseline) at 95% gate-pass-rate, while meanFinalCorrectedWer
+// matched or beat the baseline (59.8% vs 60.9%). Denser schedules added marks
+// inside the 3s misfire zone and dropped gate-pass-rate.
 // The smallest mark must be ≥ MIN_AUDIO_SAMPLES / SAMPLE_RATE = 3, because
 // transcribeFileOffline has no internal short-clip guard.
-export const PROGRESSIVE_PASS_MARKS_SEC: readonly number[] = [5, 10, 20];
+// To revert to today's endpoint-only behavior, set this to [].
+export const PROGRESSIVE_PASS_MARKS_SEC: readonly number[] = [5, 10, 15];
 
 // Offline-pass quality gates: reject offline output that looks structurally
 // wrong before it overrides streaming text. See docs/specs/offline-pass-quality-gate.md
