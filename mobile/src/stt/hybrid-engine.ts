@@ -28,6 +28,8 @@ import {
   segmentDurationSec,
   samplesToWav,
   uint8ToBase64,
+  nextProgressivePassMark,
+  snapshotSegmentPrefix,
   Segment,
   SAMPLE_RATE,
   MIN_AUDIO_SAMPLES,
@@ -196,6 +198,15 @@ export async function startHybridTranscription(
     resetMaxTimer();
   }
 
+  function tryProgressivePass() {
+    if (stopped || !isWhisperReady() || passState.inFlight) return;
+    const mark = nextProgressivePassMark(currentSegment, passState.firedMarks);
+    if (mark === null) return;
+    passState.firedMarks.add(mark);
+    const snapshot = snapshotSegmentPrefix(currentSegment, mark);
+    scheduleOfflinePass({ kind: "progressive", mark, seg: snapshot });
+  }
+
   function resetMaxTimer() {
     if (maxTimer) clearTimeout(maxTimer);
     if (stopped) return;
@@ -264,7 +275,12 @@ export async function startHybridTranscription(
     // 1. Buffer audio for offline pass (sync, always runs)
     appendSamples(currentSegment, samples);
 
-    // 2. Queue for sherpa streaming (serialized to prevent concurrent native calls)
+    // 2. Maybe fire a progressive (in-flight) offline pass on the still-open
+    // segment. nextProgressivePassMark + the inFlight guard make this a no-op
+    // when nothing should fire — cheap to call on every PCM frame.
+    tryProgressivePass();
+
+    // 3. Queue for sherpa streaming (serialized to prevent concurrent native calls)
     pendingChunks.push({ samples, sampleRate });
     processNextChunk();
   });
