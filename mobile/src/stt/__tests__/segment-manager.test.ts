@@ -9,6 +9,9 @@ import {
   hasFrenchStopword,
   isLengthRatioOk,
   gateOfflineText,
+  nextProgressivePassMark,
+  snapshotSegmentPrefix,
+  PROGRESSIVE_PASS_MARKS_SEC,
   SAMPLE_RATE,
   MIN_PASS_INTERVAL_MS,
   MIN_AUDIO_SAMPLES,
@@ -94,6 +97,198 @@ describe("buildTranscript", () => {
     };
     const result = buildTranscript([seg], createSegment(1));
     expect(result).toBe("good streaming text");
+  });
+});
+
+// ── buildTranscript with current-segment offline (progressive) ──
+
+describe("buildTranscript with current-segment offline text", () => {
+  test("uses current-segment offline text when it passes the gates", () => {
+    const current: Segment = {
+      index: 0,
+      streamingText: "le patient arrive aux urgences",
+      offlineText: "le patient arrive aux urgences pour douleur",
+      audioSamples: [],
+    };
+    expect(buildTranscript([], current)).toBe("le patient arrive aux urgences pour douleur");
+  });
+
+  test("falls back to streaming when in-flight offline fails stopword gate", () => {
+    const current: Segment = {
+      index: 0,
+      streamingText: "le patient arrive aux urgences",
+      offlineText: "the patient arrives in the emergency room", // no French stopword
+      audioSamples: [],
+    };
+    expect(buildTranscript([], current)).toBe("le patient arrive aux urgences");
+  });
+
+  test("falls back to streaming when in-flight offline fails length-ratio gate", () => {
+    const streaming = new Array(20).fill("le").join(" ");
+    const current: Segment = {
+      index: 0,
+      streamingText: streaming,
+      offlineText: "le patient", // way too short
+      audioSamples: [],
+    };
+    expect(buildTranscript([], current)).toBe(streaming);
+  });
+
+  test("empty current-segment offline falls back to streaming silently", () => {
+    const current: Segment = {
+      index: 0,
+      streamingText: "le patient",
+      offlineText: "",
+      audioSamples: [],
+    };
+    expect(buildTranscript([], current)).toBe("le patient");
+  });
+
+  test("works alongside finished segments", () => {
+    const finished: Segment = {
+      index: 0,
+      streamingText: "premier segment",
+      offlineText: "le premier segment final",
+      audioSamples: [],
+    };
+    const current: Segment = {
+      index: 1,
+      streamingText: "deuxième segment partiel",
+      offlineText: "le deuxième segment en cours",
+      audioSamples: [],
+    };
+    expect(buildTranscript([finished], current)).toBe(
+      "le premier segment final. le deuxième segment en cours"
+    );
+  });
+});
+
+// ── nextProgressivePassMark ─────────────────────────────
+
+describe("nextProgressivePassMark", () => {
+  const marks = [5, 10, 20];
+
+  test("returns null when segment is below the smallest mark", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 4).fill(0);
+    expect(nextProgressivePassMark(seg, new Set(), marks)).toBeNull();
+  });
+
+  test("returns the smallest unfired mark whose threshold has been crossed", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 12).fill(0); // 12s ≥ 5 and 10
+    expect(nextProgressivePassMark(seg, new Set(), marks)).toBe(5);
+  });
+
+  test("skips already-fired marks and returns the next one", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 12).fill(0);
+    expect(nextProgressivePassMark(seg, new Set([5]), marks)).toBe(10);
+  });
+
+  test("returns null when all marks below duration are already fired", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 12).fill(0);
+    expect(nextProgressivePassMark(seg, new Set([5, 10]), marks)).toBeNull();
+  });
+
+  test("returns null when all marks are fired regardless of duration", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 30).fill(0);
+    expect(nextProgressivePassMark(seg, new Set([5, 10, 20]), marks)).toBeNull();
+  });
+
+  test("fires exactly at the threshold (duration == mark)", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 5).fill(0);
+    expect(nextProgressivePassMark(seg, new Set(), marks)).toBe(5);
+  });
+
+  test("default marks parameter is PROGRESSIVE_PASS_MARKS_SEC", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 30).fill(0);
+    expect(nextProgressivePassMark(seg, new Set())).toBe(PROGRESSIVE_PASS_MARKS_SEC[0]);
+  });
+
+  test("respects a custom marks parameter", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 8).fill(0);
+    expect(nextProgressivePassMark(seg, new Set(), [3, 6, 9])).toBe(3);
+    expect(nextProgressivePassMark(seg, new Set([3]), [3, 6, 9])).toBe(6);
+  });
+});
+
+// ── snapshotSegmentPrefix ───────────────────────────────
+
+describe("snapshotSegmentPrefix", () => {
+  test("truncates samples to durationSec × SAMPLE_RATE", () => {
+    const seg = createSegment(7);
+    seg.audioSamples = new Array(SAMPLE_RATE * 10).fill(0.5);
+    const snap = snapshotSegmentPrefix(seg, 5);
+    expect(snap.audioSamples.length).toBe(SAMPLE_RATE * 5);
+  });
+
+  test("caps at the segment's actual sample length", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 3).fill(0.5);
+    const snap = snapshotSegmentPrefix(seg, 10);
+    expect(snap.audioSamples.length).toBe(SAMPLE_RATE * 3);
+  });
+
+  test("preserves index and streamingText", () => {
+    const seg: Segment = {
+      index: 42,
+      streamingText: "le patient arrive",
+      offlineText: "something else",
+      audioSamples: new Array(SAMPLE_RATE * 6).fill(0),
+    };
+    const snap = snapshotSegmentPrefix(seg, 5);
+    expect(snap.index).toBe(42);
+    expect(snap.streamingText).toBe("le patient arrive");
+  });
+
+  test("always sets offlineText to null on the snapshot", () => {
+    const seg: Segment = {
+      index: 0,
+      streamingText: "",
+      offlineText: "should not be carried over",
+      audioSamples: new Array(SAMPLE_RATE * 6).fill(0),
+    };
+    const snap = snapshotSegmentPrefix(seg, 5);
+    expect(snap.offlineText).toBeNull();
+  });
+
+  test("mutating the snapshot does not affect the original", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = [1, 2, 3, 4, 5];
+    const snap = snapshotSegmentPrefix(seg, 100);
+    snap.audioSamples.push(999);
+    expect(seg.audioSamples).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("appending to the original after snapshot does not grow the snapshot", () => {
+    const seg = createSegment(0);
+    seg.audioSamples = new Array(SAMPLE_RATE * 4).fill(0);
+    const snap = snapshotSegmentPrefix(seg, 4);
+    appendSamples(seg, new Array(SAMPLE_RATE * 2).fill(0));
+    expect(seg.audioSamples.length).toBe(SAMPLE_RATE * 6);
+    expect(snap.audioSamples.length).toBe(SAMPLE_RATE * 4);
+  });
+});
+
+// ── PROGRESSIVE_PASS_MARKS_SEC sanity ───────────────────
+
+describe("PROGRESSIVE_PASS_MARKS_SEC", () => {
+  test("smallest mark is at least the MIN_AUDIO_SAMPLES threshold (3s)", () => {
+    // transcribeFileOffline has no internal short-clip guard, so the schedule
+    // must keep every progressive prefix above the 3s floor.
+    const minMark = Math.min(...PROGRESSIVE_PASS_MARKS_SEC);
+    expect(minMark).toBeGreaterThanOrEqual(MIN_AUDIO_SAMPLES / SAMPLE_RATE);
+  });
+
+  test("marks are sorted ascending", () => {
+    const sorted = [...PROGRESSIVE_PASS_MARKS_SEC].sort((a, b) => a - b);
+    expect(PROGRESSIVE_PASS_MARKS_SEC).toEqual(sorted);
   });
 });
 

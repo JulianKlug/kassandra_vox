@@ -17,6 +17,17 @@ export const MIN_AUDIO_SAMPLES = SAMPLE_RATE * 3; // 3 seconds
 export const MAX_NO_PASS_MS = 30_000;
 export const MAX_SAMPLES_PER_SEGMENT = SAMPLE_RATE * 60; // 60 seconds cap
 
+// Progressive offline-pass schedule. A pass fires when the CURRENT
+// (still-open) segment first crosses each mark and the prior pass has
+// finished. Marks are in seconds of buffered audio. The endpoint-triggered
+// pass (on segment close) always runs independently of this schedule.
+//
+// Placeholder values; tuned from the sweep harness on the 10 spike
+// recordings before merge (docs/specs/progressive-offline-passes.md).
+// The smallest mark must be ≥ MIN_AUDIO_SAMPLES / SAMPLE_RATE = 3, because
+// transcribeFileOffline has no internal short-clip guard.
+export const PROGRESSIVE_PASS_MARKS_SEC: readonly number[] = [5, 10, 20];
+
 // Offline-pass quality gates: reject offline output that looks structurally
 // wrong before it overrides streaming text. See docs/specs/offline-pass-quality-gate.md
 export const FRENCH_STOPWORDS = new Set([
@@ -103,6 +114,10 @@ export function gateOfflineText(
 /**
  * Build the full transcript from finished segments + current in-progress segment.
  * Prefers offline text when it passes the quality gates, falls back to streaming.
+ *
+ * The current segment is gated the same way as finished segments: if a
+ * progressive (in-flight) offline pass has written into currentSegment.offlineText
+ * and that text passes gateOfflineText, it overrides the streaming text.
  */
 export function buildTranscript(
   finishedSegments: Segment[],
@@ -118,9 +133,55 @@ export function buildTranscript(
       );
     }
   }
-  const current = currentSegment.streamingText;
-  if (current.trim()) parts.push(current.trim());
+  const curDecision = gateOfflineText(currentSegment.streamingText, currentSegment.offlineText);
+  if (curDecision.text) parts.push(curDecision.text);
+  if (curDecision.rejectionReason && curDecision.rejectionReason !== "empty") {
+    console.log(
+      `[vox] Offline rejected in-flight (${curDecision.rejectionReason}) seg #${currentSegment.index}: "${currentSegment.offlineText?.slice(0, 60)}"`
+    );
+  }
   return parts.join(". ");
+}
+
+/**
+ * Return the smallest unfired mark whose threshold the segment has crossed,
+ * or null if no mark should fire now.
+ *
+ * Pure function — given the current segment, the set of marks already fired
+ * for it, and the schedule, decide "is it time to fire another progressive
+ * pass?" Caller is responsible for adding the returned mark to firedMarks
+ * so it isn't picked again.
+ */
+export function nextProgressivePassMark(
+  currentSegment: Segment,
+  firedMarks: ReadonlySet<number>,
+  marks: readonly number[] = PROGRESSIVE_PASS_MARKS_SEC
+): number | null {
+  const durS = segmentDurationSec(currentSegment);
+  for (const m of marks) {
+    if (!firedMarks.has(m) && durS >= m) return m;
+  }
+  return null;
+}
+
+/**
+ * Take an immutable prefix of a segment's audio for a progressive offline pass.
+ *
+ * Progressive passes must run on a frozen prefix because the live currentSegment
+ * keeps accumulating PCM samples during inference. Without a snapshot, the pass
+ * result would write back text that no longer matches the audio in the buffer.
+ *
+ * The snapshot preserves the segment's index so writebackTarget can route the
+ * completed pass's result to the right place (current vs finished slot).
+ */
+export function snapshotSegmentPrefix(segment: Segment, durationSec: number): Segment {
+  const cap = Math.min(segment.audioSamples.length, Math.floor(durationSec * SAMPLE_RATE));
+  return {
+    index: segment.index,
+    streamingText: segment.streamingText,
+    offlineText: null,
+    audioSamples: segment.audioSamples.slice(0, cap),
+  };
 }
 
 /**
