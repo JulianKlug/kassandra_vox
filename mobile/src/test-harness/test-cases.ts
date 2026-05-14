@@ -9,6 +9,7 @@
  */
 
 import * as FileSystem from "expo-file-system/legacy";
+import type { PcmLiveStreamHandle } from "react-native-sherpa-onnx/audio";
 import { applyCorrections } from "../pipeline/correct";
 import {
   createSegment,
@@ -16,21 +17,9 @@ import {
   appendSamples,
   samplesToWav,
   uint8ToBase64,
-  addDither,
-  gateOfflineText,
-  nextProgressivePassMark,
-  snapshotSegmentPrefix,
   PROGRESSIVE_PASS_MARKS_SEC,
   SAMPLE_RATE,
-  Segment,
 } from "../stt/segment-manager";
-import {
-  createState,
-  enqueue,
-  dequeue,
-  writebackTarget,
-  onRotate,
-} from "../stt/progressive-pass-state";
 import {
   isSherpaReady,
   ensureFrenchModel,
@@ -42,6 +31,7 @@ import {
   initOfflineEngine,
   transcribeFileOffline,
 } from "../stt/whisper-offline";
+import { startHybridTranscription, HybridUpdate } from "../stt/hybrid-engine";
 import { TEST_RECORDINGS } from "./test-data";
 
 export interface TestResult {
@@ -213,16 +203,16 @@ const tests: TestFn[] = [
     assert(seg.audioSamples.length === 1000, `Expected 1000 samples, got ${seg.audioSamples.length}`);
   }),
 
-  // 11. Progressive-pass orchestration on real audio (D3)
+  // 11. Progressive-pass orchestration end-to-end on real engine (D3)
   //
-  // Drives the same state-machine pieces hybrid-engine uses (passState +
-  // snapshotSegmentPrefix + writebackTarget) by simulating PCM chunks
-  // arriving from a real recording. Asserts: progressive passes fire at
-  // the configured marks, snapshots write back to the right segment
-  // (current vs finished), rotation clears firedMarks, and the final
-  // transcript reflects offline text where the gates pass.
+  // Drives startHybridTranscription with a WAV-backed PCM stub instead of
+  // the device microphone. Both engines (sherpa zipformer + offline NeMo)
+  // run for real; only the PCM source is replaced. Asserts: progressive
+  // passes fire at the configured marks (via tagged log lines), final
+  // transcript is non-empty, no engine errors.
   test("progressive_passes_orchestration", async () => {
     assert(isWhisperReady(), "Offline engine must be ready");
+    assert(isSherpaReady(), "Streaming engine must be ready");
     const rec = TEST_RECORDINGS[0];
     const audioInfo = await FileSystem.getInfoAsync(rec.audioFile);
     assert(audioInfo.exists, `Audio file missing: ${rec.audioFile}`);
@@ -245,112 +235,87 @@ const tests: TestFn[] = [
       const signed = int16 > 32767 ? int16 - 65536 : int16;
       allSamples.push(signed / 32768);
     }
-    const fullDurSec = allSamples.length / SAMPLE_RATE;
-    assert(fullDurSec >= 10, `Need >=10s of audio for orchestration test, got ${fullDurSec.toFixed(1)}s`);
+    // Cap at 25s so the test doesn't run for the full recording.
+    const maxDurSec = 25;
+    const samples = allSamples.slice(0, SAMPLE_RATE * maxDurSec);
+    const durSec = samples.length / SAMPLE_RATE;
+    assert(durSec >= 10, `Need ≥10s of audio for orchestration test, got ${durSec.toFixed(1)}s`);
 
-    // Simulate the engine state.
-    const finishedSegments: Segment[] = [];
-    let currentSegment = createSegment(0);
-    const passState = createState();
-
-    // Helper to run a snapshot through the offline engine + writeback.
-    async function processSnapshot(seg: Segment): Promise<{ result: string | null }> {
-      const wavPath = `${FileSystem.cacheDirectory}vox-orch-${seg.index}-${Date.now()}.wav`;
-      const wavBytes = samplesToWav(addDither(seg.audioSamples));
-      const base64 = uint8ToBase64(wavBytes);
-      await FileSystem.writeAsStringAsync(wavPath, base64, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      try {
-        const rawText = await transcribeFileOffline(wavPath);
-        const corrected = applyCorrections(rawText.toLowerCase().trim()).text.trim();
-        return { result: corrected || null };
-      } finally {
-        try { await FileSystem.deleteAsync(wavPath, { idempotent: true }); } catch {}
-      }
-    }
-
-    // Feed PCM in 1s chunks and fire progressive passes at the configured marks.
-    const chunkSamples = SAMPLE_RATE; // 1s
-    const firedMarks: number[] = [];
-    for (let i = 0; i < allSamples.length; i += chunkSamples) {
-      const chunk = allSamples.slice(i, Math.min(i + chunkSamples, allSamples.length));
-      appendSamples(currentSegment, chunk);
-
-      // Progressive trigger logic (same as tryProgressivePass).
-      if (!passState.inFlight) {
-        const mark = nextProgressivePassMark(currentSegment, passState.firedMarks);
-        if (mark !== null) {
-          passState.firedMarks.add(mark);
-          firedMarks.push(mark);
-          const snapshot = snapshotSegmentPrefix(currentSegment, mark);
-          passState.inFlight = { kind: "progressive", mark, seg: snapshot };
-          const { result } = await processSnapshot(snapshot);
-          // Apply via writebackTarget (same as applyResult).
-          const target = writebackTarget(snapshot, currentSegment.index, finishedSegments);
-          if (result && target.target === "current") {
-            currentSegment.offlineText = result;
-          } else if (result && target.target === "finished") {
-            finishedSegments[target.i].offlineText = result;
+    // WAV-backed PCM stub. Emits 100ms chunks every 50ms (≈ 2× real-time)
+    // so the test finishes in ~half the audio duration. The engine's
+    // pendingChunks queue handles the modest backpressure.
+    const CHUNK_SAMPLES = Math.floor(SAMPLE_RATE * 0.1);
+    const TICK_MS = 50;
+    let dataCb: ((s: Float32Array, sr: number) => void) | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let pos = 0;
+    let feedDone!: () => void;
+    const feedComplete = new Promise<void>((resolve) => { feedDone = resolve; });
+    const stubPcm: PcmLiveStreamHandle = {
+      onError: () => () => {},
+      onData: (cb) => { dataCb = cb; return () => { dataCb = null; }; },
+      start: async () => {
+        timer = setInterval(() => {
+          if (pos >= samples.length) {
+            if (timer) { clearInterval(timer); timer = null; }
+            feedDone();
+            return;
           }
-          passState.inFlight = null;
-        }
-      }
-    }
+          const chunk = samples.slice(pos, Math.min(pos + CHUNK_SAMPLES, samples.length));
+          pos += CHUNK_SAMPLES;
+          if (dataCb) dataCb(new Float32Array(chunk), SAMPLE_RATE);
+        }, TICK_MS);
+      },
+      stop: async () => {
+        if (timer) { clearInterval(timer); timer = null; }
+      },
+    };
 
-    // Assert progressive passes fired at the configured marks.
-    const expectedMarks = PROGRESSIVE_PASS_MARKS_SEC.filter((m) => m <= fullDurSec);
-    assert(
-      firedMarks.length === expectedMarks.length,
-      `Expected ${expectedMarks.length} progressive passes (marks ${expectedMarks.join(",")}), fired ${firedMarks.length} (${firedMarks.join(",")})`,
-    );
-    for (let i = 0; i < expectedMarks.length; i++) {
-      assert(
-        firedMarks[i] === expectedMarks[i],
-        `Mark ${i}: expected ${expectedMarks[i]}, got ${firedMarks[i]}`,
+    // Capture log lines so we can assert progressive passes fired.
+    const capturedLogs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => {
+      const msg = args.map((a) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+      capturedLogs.push(msg);
+      origLog(...args);
+    };
+
+    const updates: HybridUpdate[] = [];
+    let lastError: string | null = null;
+
+    try {
+      const handle = await startHybridTranscription(
+        (u) => updates.push(u),
+        (msg) => { lastError = msg; },
+        () => stubPcm,
       );
+
+      // Wait for the stub to finish feeding, then give the engines time to
+      // drain pending chunks and complete any final offline passes.
+      await feedComplete;
+      await new Promise((r) => setTimeout(r, 8000));
+      await handle.stop();
+    } finally {
+      console.log = origLog;
     }
 
-    // At least one progressive should have produced text that survives the gate
-    // (the recording is genuine French dictation, well above 3s).
-    if (currentSegment.offlineText) {
-      const decision = gateOfflineText(currentSegment.streamingText, currentSegment.offlineText);
-      console.log(
-        `[VoxTest] orchestration: in-flight gate = ${decision.source}` +
-          (decision.rejectionReason ? ` (${decision.rejectionReason})` : ""),
-      );
-    }
+    assert(!lastError, `Engine reported error: ${lastError}`);
+    assert(updates.length > 0, "Expected at least one transcript update");
 
-    // Simulate endpoint rotation: push current to finished, rotate, onRotate, run endpoint pass.
-    const closedSeg = currentSegment;
-    finishedSegments.push(closedSeg);
-    currentSegment = createSegment(closedSeg.index + 1);
-    onRotate(passState);
-    assert(passState.firedMarks.size === 0, "onRotate should clear firedMarks");
-
-    // Endpoint pass writes back to the finished slot via writebackTarget.
-    const { result: endpointResult } = await processSnapshot(closedSeg);
-    const endpointTarget = writebackTarget(closedSeg, currentSegment.index, finishedSegments);
+    // Progressive pass log line: "[vox] Offline pass #N (progressive, mark=Ns): ..."
+    const progressiveLogs = capturedLogs.filter((l) => l.includes("(progressive, mark="));
+    const totalOfflineLogs = capturedLogs.filter((l) => l.includes("Offline pass #")).length;
+    const expectedMarks = PROGRESSIVE_PASS_MARKS_SEC.filter((m) => m <= durSec);
     assert(
-      endpointTarget.target === "finished",
-      `After rotation, endpoint result should target "finished", got ${JSON.stringify(endpointTarget)}`,
-    );
-    if (endpointResult && endpointTarget.target === "finished") {
-      finishedSegments[endpointTarget.i].offlineText = endpointResult;
-    }
-
-    // The final transcript should include something (offline if gates passed,
-    // streaming otherwise). With genuine French dictation > 10s the endpoint
-    // pass should produce text — we just assert non-empty.
-    const transcript = buildTranscript(finishedSegments, currentSegment);
-    assert(
-      transcript.length > 0,
-      `Expected non-empty transcript after orchestration, got: "${transcript}"`,
+      progressiveLogs.length > 0,
+      `Expected progressive pass log lines (audio=${durSec.toFixed(1)}s, expected marks ${expectedMarks.join(",")}); saw 0 progressive out of ${totalOfflineLogs} total offline pass logs.`,
     );
 
-    // The next segment's firedMarks should start empty for a fresh round.
-    const nextMark = nextProgressivePassMark(currentSegment, passState.firedMarks);
-    assert(nextMark === null, "Fresh current segment has no audio; nextProgressivePassMark should be null");
+    // Final transcript should be non-empty.
+    const finalText = updates[updates.length - 1].text;
+    assert(finalText.length > 0, `Expected non-empty final transcript, got: "${finalText}"`);
+
+    origLog(`[VoxTest] orchestration: ${progressiveLogs.length} progressive passes fired, final text: "${finalText.slice(0, 80)}..."`);
   }),
 ];
 

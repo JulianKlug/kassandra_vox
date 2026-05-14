@@ -55,6 +55,13 @@ export interface HybridHandle {
 }
 
 /**
+ * Factory for the PCM source the engine consumes. Defaults to the device
+ * microphone via createPcmLiveStream. Tests inject a WAV-backed stub to
+ * exercise the real engine end-to-end without microphone access.
+ */
+export type PcmSourceFactory = (opts: { sampleRate: number }) => PcmLiveStreamHandle;
+
+/**
  * Write a segment's audio samples to a temp WAV file.
  * Returns the file path. Caller must delete after use.
  */
@@ -70,7 +77,8 @@ async function writeSegmentToWav(seg: Segment): Promise<string> {
 
 export async function startHybridTranscription(
   onUpdate: (u: HybridUpdate) => void,
-  onError: (msg: string) => void
+  onError: (msg: string) => void,
+  pcmFactory: PcmSourceFactory = createPcmLiveStream,
 ): Promise<HybridHandle> {
   const engine = getSherpaEngine();
   if (!engine) throw new Error("Sherpa engine not initialized");
@@ -215,7 +223,7 @@ export async function startHybridTranscription(
 
   // Create STT stream and PCM capture
   const sttStream: SttStream = await engine.createStream();
-  const pcm: PcmLiveStreamHandle = createPcmLiveStream({ sampleRate: SAMPLE_RATE });
+  const pcm: PcmLiveStreamHandle = pcmFactory({ sampleRate: SAMPLE_RATE });
 
   pcm.onError((msg: string) => onError(`Audio: ${msg}`));
 
