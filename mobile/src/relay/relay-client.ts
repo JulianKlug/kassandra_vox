@@ -17,8 +17,9 @@ import {
 } from "../crypto/e2e";
 
 // Dev: use the host machine's local IP so the phone can reach the relay
-// over WiFi without adb reverse. Update this IP if your network changes.
-const DEV_RELAY_HOST = "192.168.1.21";
+// over WiFi without adb reverse. Set EXPO_PUBLIC_RELAY_HOST in mobile/.env
+// (or mobile/.env.local) to override per network.
+const DEV_RELAY_HOST = process.env.EXPO_PUBLIC_RELAY_HOST ?? "192.168.1.21";
 const RELAY_URL = __DEV__
   ? `ws://${DEV_RELAY_HOST}:8080`
   : "wss://vox-relay.fly.dev";
