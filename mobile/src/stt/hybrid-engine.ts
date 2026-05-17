@@ -158,13 +158,15 @@ export async function startHybridTranscription(
 
   function applyResult(entry: QueueEntry, result: string | null) {
     if (result == null) return;
-    const target = writebackTarget(entry.seg, currentSegment.index, finishedSegments);
+    const target = writebackTarget(entry.seg, currentSegment.index, finishedSegments, entry.kind);
     if (target.target === "current") {
       currentSegment.offlineText = result;
+      currentSegment.offlineStreamingSnapshot = entry.seg.streamingText;
     } else if (target.target === "finished") {
       finishedSegments[target.i].offlineText = result;
+      finishedSegments[target.i].offlineStreamingSnapshot = entry.seg.streamingText;
     }
-    // discard otherwise (a newer pass already won, or segment cleaned up)
+    // discard otherwise (a progressive pass arrived after another result won)
   }
 
   function runEntry(entry: QueueEntry) {

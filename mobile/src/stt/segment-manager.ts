@@ -51,6 +51,12 @@ export interface Segment {
   index: number;
   streamingText: string;
   offlineText: string | null;
+  // Streaming text captured at the moment audio was snapshotted for the offline
+  // pass that produced `offlineText`. Length gate compares against this so a
+  // progressive (prefix-only) offline pass isn't rejected for being "too short"
+  // when streamingText has continued to grow past the snapshot. Optional so old
+  // Segment literals (and endpoint-only paths) still satisfy the type.
+  offlineStreamingSnapshot?: string | null;
   audioSamples: number[];
 }
 
@@ -61,7 +67,13 @@ export interface OfflineGateDecision {
 }
 
 export function createSegment(index: number): Segment {
-  return { index, streamingText: "", offlineText: null, audioSamples: [] };
+  return {
+    index,
+    streamingText: "",
+    offlineText: null,
+    offlineStreamingSnapshot: null,
+    audioSamples: [],
+  };
 }
 
 /**
@@ -98,10 +110,16 @@ export function isLengthRatioOk(streaming: string, offline: string): boolean {
  */
 export function gateOfflineText(
   streamingText: string,
-  offlineText: string | null
+  offlineText: string | null,
+  // Streaming text from the moment the offline pass's audio was snapshotted.
+  // Used only for the length-ratio gate so a prefix-only offline result (from a
+  // progressive pass) is compared against the streaming words for the same
+  // audio window, not against the full live streamingText.
+  streamingAtSnapshot?: string | null,
 ): OfflineGateDecision {
   const offline = offlineText?.trim() ?? "";
   const streaming = streamingText.trim();
+  const streamingForLength = (streamingAtSnapshot ?? streamingText).trim();
 
   if (!offline) {
     return { text: streaming, source: "streaming-fallback", rejectionReason: "empty" };
@@ -109,7 +127,7 @@ export function gateOfflineText(
   if (!hasFrenchStopword(offline)) {
     return { text: streaming, source: "streaming-fallback", rejectionReason: "no-french-stopword" };
   }
-  if (!isLengthRatioOk(streaming, offline)) {
+  if (!isLengthRatioOk(streamingForLength, offline)) {
     return { text: streaming, source: "streaming-fallback", rejectionReason: "length-mismatch" };
   }
   return { text: offline, source: "offline" };
@@ -129,7 +147,11 @@ export function buildTranscript(
 ): string {
   const parts: string[] = [];
   for (const seg of finishedSegments) {
-    const decision = gateOfflineText(seg.streamingText, seg.offlineText);
+    const decision = gateOfflineText(
+      seg.streamingText,
+      seg.offlineText,
+      seg.offlineStreamingSnapshot,
+    );
     if (decision.text) parts.push(decision.text);
     if (decision.rejectionReason && decision.rejectionReason !== "empty") {
       console.log(
@@ -137,7 +159,11 @@ export function buildTranscript(
       );
     }
   }
-  const curDecision = gateOfflineText(currentSegment.streamingText, currentSegment.offlineText);
+  const curDecision = gateOfflineText(
+    currentSegment.streamingText,
+    currentSegment.offlineText,
+    currentSegment.offlineStreamingSnapshot,
+  );
   if (curDecision.text) parts.push(curDecision.text);
   if (curDecision.rejectionReason && curDecision.rejectionReason !== "empty") {
     console.log(
@@ -184,6 +210,7 @@ export function snapshotSegmentPrefix(segment: Segment, durationSec: number): Se
     index: segment.index,
     streamingText: segment.streamingText,
     offlineText: null,
+    offlineStreamingSnapshot: null,
     audioSamples: segment.audioSamples.slice(0, cap),
   };
 }
