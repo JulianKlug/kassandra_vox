@@ -465,6 +465,49 @@ describe("gateOfflineText", () => {
     expect(decision.source).toBe("offline");
     expect(decision.text).toBe("noradrénaline adrénaline");
   });
+
+  // Regression: progressive offline passes transcribe a PREFIX of audio while
+  // streamingText keeps growing. Without the snapshot, the length gate compared
+  // prefix offline (10 words) against full streaming (22+ words) and rejected
+  // valid offline output as length-mismatch.
+  test("length gate uses snapshot streaming when offline came from a prefix pass", () => {
+    const fullStreaming = new Array(22).fill("le").join(" ");
+    const offline = "ceci est un test parce que les tests c'est bien";
+    const snapshotStreaming = new Array(10).fill("le").join(" ");
+
+    const withoutSnapshot = gateOfflineText(fullStreaming, offline);
+    expect(withoutSnapshot.rejectionReason).toBe("length-mismatch");
+
+    const withSnapshot = gateOfflineText(fullStreaming, offline, snapshotStreaming);
+    expect(withSnapshot.rejectionReason).toBeUndefined();
+    expect(withSnapshot.source).toBe("offline");
+    expect(withSnapshot.text).toBe(offline);
+  });
+
+  test("snapshot streaming does not override stopword or empty checks", () => {
+    const empty = gateOfflineText("le patient parle", "", "le patient");
+    expect(empty.rejectionReason).toBe("empty");
+
+    const noFrench = gateOfflineText(
+      "le patient parle",
+      "the patient speaks english here",
+      "le patient",
+    );
+    expect(noFrench.rejectionReason).toBe("no-french-stopword");
+  });
+
+  test("rejection fallback still returns full streaming, not snapshot", () => {
+    // When the gate rejects, the user sees the full live streaming text, not
+    // the older streaming snapshot. Snapshot is for comparison only.
+    const fullStreaming = "le patient arrive aux urgences pour douleur thoracique aiguë";
+    const decision = gateOfflineText(
+      fullStreaming,
+      "ceci texte pas du tout pertinent qui boucle qui boucle qui boucle qui boucle qui boucle qui boucle qui boucle qui boucle qui boucle qui boucle",
+      "le patient",
+    );
+    expect(decision.rejectionReason).toBe("length-mismatch");
+    expect(decision.text).toBe(fullStreaming);
+  });
 });
 
 // ── appendSamples ───────────────────────────────────────

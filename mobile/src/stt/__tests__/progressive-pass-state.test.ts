@@ -150,6 +150,37 @@ describe("writebackTarget", () => {
     const snapshot = createSegment(3);
     expect(writebackTarget(snapshot, 3, finished)).toEqual({ target: "current" });
   });
+
+  // Regression: endpoint pass transcribed the full segment audio. A progressive
+  // pass result already in the slot is prefix-only and must not block it.
+  test("endpoint pass overwrites a progressive result in the finished slot", () => {
+    const finished: Segment[] = [
+      { ...createSegment(0), offlineText: "prefix-only from progressive" },
+    ];
+    const snapshot = createSegment(0);
+    expect(writebackTarget(snapshot, 1, finished, "endpoint")).toEqual({
+      target: "finished",
+      i: 0,
+    });
+  });
+
+  test("progressive pass does NOT overwrite an existing result", () => {
+    const finished: Segment[] = [
+      { ...createSegment(0), offlineText: "earlier result" },
+    ];
+    const snapshot = createSegment(0);
+    expect(writebackTarget(snapshot, 1, finished, "progressive")).toEqual({
+      target: "discard",
+    });
+  });
+
+  test("default kind keeps prior progressive-style behavior", () => {
+    const finished: Segment[] = [
+      { ...createSegment(0), offlineText: "already there" },
+    ];
+    const snapshot = createSegment(0);
+    expect(writebackTarget(snapshot, 1, finished)).toEqual({ target: "discard" });
+  });
 });
 
 // ── onRotate ────────────────────────────────────────────

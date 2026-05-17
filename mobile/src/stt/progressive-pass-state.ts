@@ -74,22 +74,27 @@ export type WritebackTarget =
  *   - "current" if the snapshot's segment is still the live current segment
  *     (the common case for progressive passes that complete before endpoint).
  *
- *   - "finished" if the segment rotated mid-pass and its slot in
- *     finishedSegments is still empty. Backfills the progressive result
- *     until the endpoint pass arrives (which will then overwrite it).
+ *   - "finished" if the segment is in finishedSegments AND either the slot
+ *     is still empty, OR this pass is the endpoint pass. Endpoint always
+ *     overwrites because it transcribed the full audio; a progressive result
+ *     in the slot is a prefix-only backfill that should not survive the
+ *     endpoint result.
  *
- *   - "discard" otherwise: the finished slot already has offline text
- *     (a newer pass already won) or the segment isn't in either place.
+ *   - "discard" otherwise: a progressive pass arriving after another result
+ *     already wrote, or the segment isn't in either place.
  */
 export function writebackTarget(
   seg: Segment,
   currentSegmentIndex: number,
   finishedSegments: Segment[],
+  kind: QueueEntry["kind"] = "progressive",
 ): WritebackTarget {
   if (seg.index === currentSegmentIndex) return { target: "current" };
   const i = finishedSegments.findIndex((s) => s.index === seg.index);
-  if (i !== -1 && finishedSegments[i].offlineText == null) {
-    return { target: "finished", i };
+  if (i !== -1) {
+    if (kind === "endpoint" || finishedSegments[i].offlineText == null) {
+      return { target: "finished", i };
+    }
   }
   return { target: "discard" };
 }
